@@ -28,6 +28,13 @@ Tensor::Tensor(const Tensor& other) : size_(other.size_), data_ptr_(nullptr) {
     data_ptr_ = new float[size_];
     std::memcpy(data_ptr_, other.data_ptr_, size_ * sizeof(float));
 }
+// 右值引用：移动构造函数
+Tensor::Tensor(Tensor&& other) noexcept
+    : size_(other.size_), data_ptr_(other.data_ptr_) {
+    other.size_ = 0;
+    other.data_ptr_ = nullptr;
+    std::cout << "[Move Constructor] Resource stolen from temporary." << std::endl;
+}
 
 // 获取数据指针
 float* Tensor::data() {
@@ -107,4 +114,17 @@ Tensor& Tensor::operator=(const Tensor& other) {
             data_ptr_[i]+=other.data_ptr_[i];
         }
         return *this;
+    }
+    // 右值引用 移动赋值运算符
+    Tensor& Tensor::operator=(Tensor&& other) noexcept {
+    if (this == &other)
+    {
+        return *this;/* code */
+    }
+    delete []this->data_ptr_;
+    this->data_ptr_ = other.data_ptr_;
+    this->size_ = other.size_;
+    other.data_ptr_= nullptr;
+    other.size_= 0;
+    return *this;
     }

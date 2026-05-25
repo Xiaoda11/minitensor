@@ -32,6 +32,11 @@ public:
     // 打印张量信息 (方便调试)
     void print_info(const std::string& name) const;
 
+    // 右值引用
+    Tensor(Tensor&& other) noexcept;
+    Tensor& operator=(Tensor&& other) noexcept;
+    
+
 private:
     float* data_ptr_; // 模拟显存/内存指针
     int size_;

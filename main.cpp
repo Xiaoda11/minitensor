@@ -81,5 +81,49 @@ int main() {
     }
 
     std::cout << "\n=== All Day 2 Tests Passed ===" << std::endl;
+
+    // ==========================================
+    // Day 3 Tests: Move Semantics
+    // ==========================================
+
+    // 8. 测试移动构造函数 — 从临时对象构造
+    std::cout << "\n--- Day 3 Test: Move Constructor ---" << std::endl;
+    {
+        Tensor source(4);
+        source.fill(5.5f);
+        source.print_info("Source (before move)");
+        
+        Tensor dest(std::move(source));  // 显式 move
+        dest.print_info("Dest (after move)");
+        source.print_info("Source (after move, should be empty)");
+        // 注意：source 被 move 后 data_ptr_ 是 nullptr，print_info 应该显示 (Empty/Null)
+    }
+
+    // 9. 测试移动赋值运算符
+    std::cout << "\n--- Day 3 Test: Move Assignment ---" << std::endl;
+    {
+        Tensor a(3); a.fill(1.0f);
+        Tensor b(6); b.fill(2.0f);
+        
+        b = std::move(a);  // 把 a 的资源偷给 b
+        b.print_info("B (after move assignment)");
+        a.print_info("A (after move, should be empty)");
+    }
+
+    // 10. 验证 operator+ 返回时走的是移动而不是拷贝
+    std::cout << "\n--- Day 3 Test: operator+ should use move, not copy ---" << std::endl;
+    {
+        Tensor x(3); x.fill(1.0f);
+        Tensor y(3); y.fill(2.0f);
+        
+        std::cout << "-- Calling x + y --" << std::endl;
+        Tensor z = x + y;
+        std::cout << "-- Result received --" << std::endl;
+        z.print_info("Z (x + y)");
+        // 理想情况下，return result 时应该走 Move Constructor 而不是 Copy Constructor
+        // （取决于编译器优化，但我们的移动实现要准备好）
+    }
+
+    std::cout << "\n=== All Day 3 Tests Passed ===" << std::endl;
     return 0;
 }
