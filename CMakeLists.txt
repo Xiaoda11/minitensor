@@ -8,4 +8,4 @@ set(CMAKE_CXX_STANDARD_REQUIRED True)
 # 编译选项：Debug 模式方便使用 GDB 调试内存
 set(CMAKE_BUILD_TYPE Debug)
 
-add_executable(minitensor main.cpp tensor.cpp)
+add_executable(minitensor main.cpp)
