@@ -4,6 +4,7 @@
 #include <iostream>
 #include <cstring>
 #include <stdexcept>
+#include <memory>
 template<typename T> 
 class Tensor {
 public:
@@ -40,54 +41,50 @@ public:
     
 
 private:
-    T* data_ptr_; // 模拟显存/内存指针
+    std::unique_ptr<T[]> data_ptr_; // 模拟显存/内存指针
     int size_;
 };
 
 // 1. 构造函数：分配内存
 template<typename T>
-Tensor<T>::Tensor(int size) : size_(size), data_ptr_(nullptr) {
+Tensor<T>::Tensor(int size) : size_(size),  data_ptr_(nullptr) {
     std::cout << "[Constructor] Allocating " << size_ << " typename Ts." << std::endl;
     
     // TODO: 使用 new 分配内存
-    data_ptr_ = new T[size_];
+     data_ptr_  = std::make_unique<T[]>(size_);
 }
 
-// 2. 析构函数：释放内存
+// 2. 析构函数：释放内存（智能指针自动实现）
 template<typename T>
-Tensor<T>::~Tensor() {
-    std::cout << "[Destructor] Freeing memory." << std::endl;
-    
-    // TODO: 使用 delete[] 释放内存
-    delete[] data_ptr_;
-}
+Tensor<T>::~Tensor() = default; 
 
 // 3. 拷贝构造函数 (实现深拷贝)
 template<typename T>
 Tensor<T>::Tensor(const Tensor& other) : size_(other.size_), data_ptr_(nullptr) {
     std::cout << "[Copy Constructor] Deep copying " << size_ << " Ts." << std::endl;
+     data_ptr_ = std::make_unique<T[]>(size_);
+    for ( int i = 0; i < size_; i++)
+    {
+          data_ptr_[i] =   other.data_ptr_[i];
+    }
     
-    
-    data_ptr_ = new T[size_];
-    std::memcpy(data_ptr_, other.data_ptr_, size_ * sizeof(T));
 }
 // 右值引用：移动构造函数
 template<typename T>
 Tensor<T>::Tensor(Tensor&& other) noexcept
-    : size_(other.size_), data_ptr_(other.data_ptr_) {
+    : size_(other.size_), data_ptr_(std::move(other.data_ptr_)) {
     other.size_ = 0;
-    other.data_ptr_ = nullptr;
     std::cout << "[Move Constructor] Resource stolen from temporary." << std::endl;
 }
 
 // 获取数据指针
 template<typename T>
 T* Tensor<T>::data() {
-    return data_ptr_;
+    return data_ptr_.get();
 }
 template<typename T>
 const T* Tensor<T>::data() const {
-    return data_ptr_;
+    return data_ptr_.get();
 }
 template<typename T>
 int Tensor<T>::size() const {
@@ -127,7 +124,7 @@ Tensor<T> Tensor<T>::operator+(const Tensor& other) const {
     
     // TODO: 2. 执行加法逻辑
     for (int i = 0; i < size_; ++i) {
-            result.data_ptr_[i] = this->data_ptr_[i] + other.data_ptr_[i];
+            result.data_ptr_[i] = this-> data_ptr_[i] + other. data_ptr_[i];
         }
     
     return result; 
@@ -143,11 +140,13 @@ Tensor<T>& Tensor<T>::operator=(const Tensor& other) {
         }
         
         // 2. 释放旧内存
-        delete[] this->data_ptr_;
         // 3. 重新分配 + 拷贝（跟拷贝构造函数一样）
         this->size_ = other.size_;
-        this->data_ptr_= new T [other.size_];
-        std::memcpy(this->data_ptr_, other.data_ptr_, size_ * sizeof(T));
+        this-> data_ptr_= std::make_unique<T[]>(other.size_);
+         for ( int i = 0; i < size_; i++)
+    {
+         data_ptr_[i] =   other. data_ptr_[i];
+    }
         // 4. 返回 *this
         return *this;
     }
@@ -171,8 +170,7 @@ Tensor<T>& Tensor<T>::operator=(Tensor&& other) noexcept {
     {
         return *this;/* code */
     }
-    delete []this->data_ptr_;
-    this->data_ptr_ = other.data_ptr_;
+    this->data_ptr_ = std::move(other.data_ptr_);
     this->size_ = other.size_;
     other.data_ptr_= nullptr;
     other.size_= 0;
