@@ -125,5 +125,79 @@ int main() {
     }
 
     std::cout << "\n=== All Day 3 Tests Passed ===" << std::endl;
+
+    // ==========================================
+    // Day 6 Tests: Shape & Stride
+    // ==========================================
+
+    // 11. 测试多维张量构造 + shape/stride 访问
+    std::cout << "\n--- Day 6 Test: Multi-Dimensional Shape & Stride ---" << std::endl;
+    {
+        Tensor<float> t({2, 3, 4});
+
+        // 验证 shape
+        auto s = t.shape();
+        std::cout << "Shape: [" << s[0] << ", " << s[1] << ", " << s[2] << "]" << std::endl;
+        assert(s[0] == 2 && s[1] == 3 && s[2] == 4);
+
+        // 验证 stride (row-major): {12, 4, 1}
+        auto st = t.stride();
+        std::cout << "Stride: [" << st[0] << ", " << st[1] << ", " << st[2] << "]" << std::endl;
+        assert(st[0] == 12 && st[1] == 4 && st[2] == 1);
+
+        // 验证 size = product of shape
+        assert(t.size() == 24);
+
+        // 验证数据可写可读
+        t.fill(3.14f);
+        assert(t.data()[0] == 3.14f);
+        assert(t.data()[23] == 3.14f);
+    }
+
+    // 12. 测试 2D 张量 stride
+    std::cout << "\n--- Day 6 Test: 2D Stride ---" << std::endl;
+    {
+        Tensor<float> t({5, 7});
+        auto st = t.stride();
+        std::cout << "Stride: [" << st[0] << ", " << st[1] << "]" << std::endl;
+        assert(st[0] == 7 && st[1] == 1);
+        assert(t.size() == 35);
+    }
+
+    // 13. 测试 1D 兼容构造 (int)
+    std::cout << "\n--- Day 6 Test: 1D Backward Compat ---" << std::endl;
+    {
+        Tensor<float> t(8);
+        auto s = t.shape();
+        auto st = t.stride();
+        std::cout << "Shape: [" << s[0] << "], Stride: [" << st[0] << "]" << std::endl;
+        assert(s.size() == 1 && s[0] == 8);
+        assert(st.size() == 1 && st[0] == 1);
+    }
+
+    // 14. 测试多维拷贝构造保留 shape/stride
+    std::cout << "\n--- Day 6 Test: Copy Preserves Shape/Stride ---" << std::endl;
+    {
+        Tensor<float> a({3, 4});
+        a.fill(5.0f);
+        Tensor<float> b = a;
+        assert(b.shape()[0] == 3 && b.shape()[1] == 4);
+        assert(b.stride()[0] == 4 && b.stride()[1] == 1);
+        assert(b.data()[0] == 5.0f);
+        assert(b.data()[11] == 5.0f);
+    }
+
+    // 15. 测试多维移动构造保留 shape/stride
+    std::cout << "\n--- Day 6 Test: Move Preserves Shape/Stride ---" << std::endl;
+    {
+        Tensor<float> a({2, 3, 5});
+        a.fill(9.0f);
+        Tensor<float> b(std::move(a));
+        assert(b.shape()[0] == 2 && b.shape()[1] == 3 && b.shape()[2] == 5);
+        assert(b.stride()[0] == 15 && b.stride()[1] == 5 && b.stride()[2] == 1);
+        assert(a.size() == 0);  // moved-out
+    }
+
+    std::cout << "\n=== All Day 6 Tests Passed ===" << std::endl;
     return 0;
 }

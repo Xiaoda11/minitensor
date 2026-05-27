@@ -5,12 +5,14 @@
 #include <cstring>
 #include <stdexcept>
 #include <memory>
+#include<vector>
+
 template<typename T> 
 class Tensor {
 public:
     // 1. 构造函数：分配内存
+    Tensor(std::vector<int> shape_);
     Tensor(int size);
-    
     // 2. 析构函数：释放内存 (核心复习点！)
     ~Tensor();
 
@@ -38,20 +40,41 @@ public:
     // 右值引用
     Tensor(Tensor&& other) noexcept;
     Tensor& operator=(Tensor&& other) noexcept;
+
+    const std::vector<int>& shape() const;
+    const std::vector<int>& stride() const;
     
 
 private:
     std::unique_ptr<T[]> data_ptr_; // 模拟显存/内存指针
-    int size_;
+   std::vector<int> shape_;   // 每维大小
+    std::vector<int> stride_;  // 每维 stride
+    int numel_;                // 元素总数 (= product of shape)
 };
-
 // 1. 构造函数：分配内存
 template<typename T>
-Tensor<T>::Tensor(int size) : size_(size),  data_ptr_(nullptr) {
-    std::cout << "[Constructor] Allocating " << size_ << " typename Ts." << std::endl;
+Tensor<T>::Tensor(int size) : Tensor(std::vector<int>{size}) {}
+template<typename T>
+Tensor<T>::Tensor(std::vector<int> shape) : numel_(1),  data_ptr_(nullptr) {
+    std::cout << "[Constructor] Allocating typename Ts." << std::endl;
+    shape_ = shape ;
+    for (int i = 0; i < shape_.size(); i++)
+    {
+        if (shape_[i] <= 0)
+        {
+            throw std::invalid_argument("...");
+        }
+        numel_ *= shape_[i];
+    }
+    int temp = numel_;
+    stride_.resize(shape.size());
+    for (int j = 0; j < shape_.size(); j++)
+    {
+        stride_[j] = temp = temp/shape_[j];
+      
+    }
     
-    // TODO: 使用 new 分配内存
-     data_ptr_  = std::make_unique<T[]>(size_);
+     data_ptr_  = std::make_unique<T[]>(numel_);
 }
 
 // 2. 析构函数：释放内存（智能指针自动实现）
@@ -60,20 +83,21 @@ Tensor<T>::~Tensor() = default;
 
 // 3. 拷贝构造函数 (实现深拷贝)
 template<typename T>
-Tensor<T>::Tensor(const Tensor& other) : size_(other.size_), data_ptr_(nullptr) {
-    std::cout << "[Copy Constructor] Deep copying " << size_ << " Ts." << std::endl;
-     data_ptr_ = std::make_unique<T[]>(size_);
-    for ( int i = 0; i < size_; i++)
+Tensor<T>::Tensor(const Tensor& other) : 
+numel_(other.numel_), data_ptr_(nullptr),shape_(other.shape_),stride_(other.stride_) {
+    std::cout << "[Copy Constructor] Deep copying " << numel_ << " Ts." << std::endl;
+     data_ptr_ = std::make_unique<T[]>(numel_);
+    for ( int i = 0; i < numel_; i++)
     {
-          data_ptr_[i] =   other.data_ptr_[i];
+        data_ptr_[i] = other.data_ptr_[i];
     }
-    
 }
 // 右值引用：移动构造函数
 template<typename T>
 Tensor<T>::Tensor(Tensor&& other) noexcept
-    : size_(other.size_), data_ptr_(std::move(other.data_ptr_)) {
-    other.size_ = 0;
+    : numel_(other.numel_), data_ptr_(std::move(other.data_ptr_)),
+    shape_(std::move(other.shape_)),stride_(std::move(other.stride_)) {
+    other.numel_ = 0;
     std::cout << "[Move Constructor] Resource stolen from temporary." << std::endl;
 }
 
@@ -88,25 +112,28 @@ const T* Tensor<T>::data() const {
 }
 template<typename T>
 int Tensor<T>::size() const {
-    return size_;
+    return numel_;
 }
-
+template<typename T>
+const std::vector<int>& Tensor<T>::shape() const { return shape_; }
+template<typename T>
+const std::vector<int>& Tensor<T>::stride() const { return stride_; }
 // 填充数据
 template<typename T>
 void Tensor<T>::fill(T value) {
     if (!data_ptr_) return; 
-    for (int i = 0; i < size_; ++i) {
+    for (int i = 0; i < numel_; ++i) {
         data_ptr_[i] = value;
     }
 }
 template<typename T>
 void Tensor<T>::print_info(const std::string& name) const {
-    std::cout << name << " [Size: " << size_ << "]: ";
+    std::cout << name << " [Size: " << numel_ << "]: ";
     if (!data_ptr_) {
         std::cout << "(Empty/Null)" << std::endl;
         return;
     }
-    for (int i = 0; i < size_; ++i) {
+    for (int i = 0; i < numel_; ++i) {
         std::cout << data_ptr_[i] << " ";
     }
     std::cout << std::endl;
@@ -115,15 +142,15 @@ void Tensor<T>::print_info(const std::string& name) const {
 // 运算符重载：Tensor A + Tensor B
 template<typename T>
 Tensor<T> Tensor<T>::operator+(const Tensor& other) const {
-    if (this->size_ != other.size_) {
+    if (this->numel_ != other.numel_) {
         throw std::invalid_argument("Tensor sizes must match for addition.");
     }
     
     // 1. 创建一个新 Tensor (结果)
-    Tensor result(this->size_);
+    Tensor result(this->shape_);
     
     // TODO: 2. 执行加法逻辑
-    for (int i = 0; i < size_; ++i) {
+    for (int i = 0; i < numel_; ++i) {
             result.data_ptr_[i] = this-> data_ptr_[i] + other. data_ptr_[i];
         }
     
@@ -141,23 +168,25 @@ Tensor<T>& Tensor<T>::operator=(const Tensor& other) {
         
         // 2. 释放旧内存
         // 3. 重新分配 + 拷贝（跟拷贝构造函数一样）
-        this->size_ = other.size_;
-        this-> data_ptr_= std::make_unique<T[]>(other.size_);
-         for ( int i = 0; i < size_; i++)
+        this->numel_ = other.numel_;
+        this-> data_ptr_= std::make_unique<T[]>(other.numel_);
+         for ( int i = 0; i < numel_; i++)
     {
          data_ptr_[i] =   other. data_ptr_[i];
     }
-        // 4. 返回 *this
+        stride_ = other.stride_;
+        shape_ = other.shape_;
+    // 4. 返回 *thisi
         return *this;
     }
     // 运算符重载：Tensor A += Tensor B
 template<typename T>
 Tensor<T>& Tensor<T>::operator+=(const Tensor& other){
-        if (size_ != other.size_)
+        if (numel_ != other.numel_)
         {
           throw std::invalid_argument("Tensor sizes must match for addition.");
         }
-        for (int i = 0; i < size_; i++)
+        for (int i = 0; i < numel_; i++)
         {
             data_ptr_[i]+=other.data_ptr_[i];
         }
@@ -171,9 +200,11 @@ Tensor<T>& Tensor<T>::operator=(Tensor&& other) noexcept {
         return *this;/* code */
     }
     this->data_ptr_ = std::move(other.data_ptr_);
-    this->size_ = other.size_;
+    this->numel_ = other.numel_;
     other.data_ptr_= nullptr;
-    other.size_= 0;
+    other.numel_= 0;
+    stride_ = std::move(other.stride_);
+    shape_ = std::move(other.shape_);
     return *this;
     }
 #endif
