@@ -199,5 +199,80 @@ int main() {
     }
 
     std::cout << "\n=== All Day 6 Tests Passed ===" << std::endl;
+
+    // ==========================================
+    // Day 8 Tests: matmul
+    // ==========================================
+
+    std::cout << "\n--- Day 8 Test: Matrix Multiplication (matmul) ---" << std::endl;
+
+    // 16. 测试 2x3 × 3x2 = 2x2
+    {
+        Tensor<float> a({2, 3});
+        Tensor<float> b({3, 2});
+
+        // A = [[1, 2, 3],
+        //      [4, 5, 6]]
+        float a_data[] = {1, 2, 3, 4, 5, 6};
+        for (int i = 0; i < 6; i++) a.data()[i] = a_data[i];
+
+        // B = [[7, 8],
+        //      [9, 10],
+        //      [11, 12]]
+        float b_data[] = {7, 8, 9, 10, 11, 12};
+        for (int i = 0; i < 6; i++) b.data()[i] = b_data[i];
+
+        // C = [[58, 64],
+        //      [139, 154]]
+        Tensor<float> c = matmul(a, b);
+
+        c.print_info("C = A × B (2x3 × 3x2)");
+        assert(c.shape()[0] == 2 && c.shape()[1] == 2);
+        assert(c.data()[0] == 58);
+        assert(c.data()[1] == 64);
+        assert(c.data()[2] == 139);
+        assert(c.data()[3] == 154);
+        std::cout << "Test 16 PASSED" << std::endl;
+    }
+
+    // 17. 测试方阵 2x2 × 2x2
+    {
+        Tensor<float> a({2, 2});
+        Tensor<float> b({2, 2});
+
+        a.data()[0] = 1; a.data()[1] = 2;
+        a.data()[2] = 3; a.data()[3] = 4;
+
+        b.data()[0] = 5; b.data()[1] = 6;
+        b.data()[2] = 7; b.data()[3] = 8;
+
+        // C = [[19, 22],
+        //      [43, 50]]
+        Tensor<float> c = matmul(a, b);
+
+        c.print_info("C = A × B (2x2)");
+        assert(c.data()[0] == 19);
+        assert(c.data()[1] == 22);
+        assert(c.data()[2] == 43);
+        assert(c.data()[3] == 50);
+        std::cout << "Test 17 PASSED" << std::endl;
+    }
+
+    // 18. 测试维度不匹配应该抛异常
+    {
+        Tensor<float> a({2, 3});
+        Tensor<float> b({4, 2});  // 3 != 4
+
+        try {
+            Tensor<float> c = matmul(a, b);
+            std::cout << "Test 18 FAILED: should have thrown" << std::endl;
+            return 1;
+        } catch (const std::invalid_argument& e) {
+            std::cout << "Test 18 PASSED: caught expected error" << std::endl;
+        }
+    }
+
+    std::cout << "\n=== All Day 8 Tests Passed ===" << std::endl;
+
     return 0;
 }

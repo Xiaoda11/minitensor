@@ -30,7 +30,8 @@ public:
 
     // 运算符重载：实现 A + B
     Tensor operator+(const Tensor& other) const;
-
+    //逐元素向乘
+    Tensor operator*(const Tensor& other) const;
     // 辅助函数：填充数据
     void fill(T value);
 
@@ -43,7 +44,10 @@ public:
 
     const std::vector<int>& shape() const;
     const std::vector<int>& stride() const;
-    
+
+    // 声明友元函数 (类外定义)
+    template<typename U>
+    friend Tensor<U> matmul(const Tensor<U>& a, const Tensor<U>& b);
 
 private:
     std::unique_ptr<T[]> data_ptr_; // 模拟显存/内存指针
@@ -207,4 +211,54 @@ Tensor<T>& Tensor<T>::operator=(Tensor&& other) noexcept {
     shape_ = std::move(other.shape_);
     return *this;
     }
+// 运算符重载：逐元素相乘
+template<typename T>
+Tensor<T> Tensor<T>::operator* (const Tensor& other) const {
+    if (this->numel_ != other.numel_) {
+        throw std::invalid_argument("Tensor sizes must match for addition.");
+    }
+    
+    // 1. 创建一个新 Tensor (结果)
+    Tensor result(this->shape_);
+    
+    // TODO: 2. 执行加法逻辑
+    for (int i = 0; i < numel_; ++i) {
+            result.data_ptr_[i] = this-> data_ptr_[i] * other. data_ptr_[i];
+        }
+    
+    return result; 
+    }
+// 矩阵乘法: A(M,K) × B(K,N) = C(M,N)  (类外定义)
+template<typename T>
+Tensor<T> matmul(const Tensor<T>& a, const Tensor<T>& b){
+    // 1. 形状检查：两个都必须是 2D
+    if (a.shape_.size() != 2 || b.shape_.size() != 2) {
+        throw std::invalid_argument("matmul: both tensors must be 2D");
+    }
+    // 2. 维度匹配检查：A 的列数 == B 的行数
+    if (a.shape_[1] != b.shape_[0]) {
+        throw std::invalid_argument("matmul: A.columns must equal B.rows");
+    }
+
+    int M = a.shape_[0];  // A 的行数 = C 的行数
+    int K = a.shape_[1];  // A 的列数 = B 的行数 (公共维度)
+    int N = b.shape_[1];  // B 的列数 = C 的列数
+
+    // 3. 创建结果张量 C(M, N)
+    Tensor<T> c({M, N});
+
+    // 4. 三重循环计算
+    for (int i = 0; i < M; i++) {          // 遍历 C 的每一行
+        for (int j = 0; j < N; j++) {      // 遍历 C 的每一列
+            T sum = 0;
+            for (int k = 0; k < K; k++) {  // 沿公共维度求和
+                // row-major 索引: [i][j] = i * stride[0] + j * stride[1]
+                sum += a.data_ptr_[i * a.stride_[0] + k] *
+                       b.data_ptr_[k * b.stride_[0] + j];
+            }
+            c.data_ptr_[i * c.stride_[0] + j] = sum;
+        }
+    }
+    return c;
+}
 #endif
