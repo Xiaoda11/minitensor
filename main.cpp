@@ -274,5 +274,242 @@ int main() {
 
     std::cout << "\n=== All Day 8 Tests Passed ===" << std::endl;
 
+    // ==========================================
+    // Day 9 Tests: Softmax & LayerNorm
+    // ==========================================
+
+    // 19. 测试 Softmax — 基础 2D
+    std::cout << "\n--- Day 9 Test: Softmax (2D) ---" << std::endl;
+    {
+        Tensor<float> input({2, 3});
+        input.data()[0] = 1.0f; input.data()[1] = 2.0f; input.data()[2] = 3.0f;  // row 0
+        input.data()[3] = 4.0f; input.data()[4] = 5.0f; input.data()[5] = 6.0f;  // row 1
+
+        Tensor<float> out = softmax(input);
+        out.print_info("Softmax output");
+
+        // 验证每行 sum ≈ 1.0
+        float row0_sum = out.data()[0] + out.data()[1] + out.data()[2];
+        float row1_sum = out.data()[3] + out.data()[4] + out.data()[5];
+        std::cout << "Row 0 sum: " << row0_sum << ", Row 1 sum: " << row1_sum << std::endl;
+        assert(std::abs(row0_sum - 1.0f) < 1e-6f);
+        assert(std::abs(row1_sum - 1.0f) < 1e-6f);
+
+        // 手动验证: softmax([1,2,3]) = [exp(1-3), exp(2-3), exp(3-3)] / sum
+        // = [exp(-2), exp(-1), exp(0)] / (exp(-2) + exp(-1) + 1)
+        float e0 = std::exp(-2.0f), e1 = std::exp(-1.0f), e2 = 1.0f;
+        float denom = e0 + e1 + e2;
+        assert(std::abs(out.data()[0] - e0 / denom) < 1e-6f);
+        assert(std::abs(out.data()[2] - e2 / denom) < 1e-6f);
+
+        std::cout << "Test 19 PASSED" << std::endl;
+    }
+
+    // 20. 测试 Softmax — 数值稳定性 (大值输入)
+    std::cout << "\n--- Day 9 Test: Softmax Numerical Stability ---" << std::endl;
+    {
+        Tensor<float> input({1, 3});
+        input.data()[0] = 100.0f; input.data()[1] = 101.0f; input.data()[2] = 102.0f;
+
+        Tensor<float> out = softmax(input);
+        out.print_info("Softmax with large values");
+
+        float row_sum = out.data()[0] + out.data()[1] + out.data()[2];
+        assert(std::abs(row_sum - 1.0f) < 1e-5f);
+        // 不应该产生 inf/nan
+        assert(!std::isnan(out.data()[0]));
+        assert(!std::isinf(out.data()[0]));
+        std::cout << "Test 20 PASSED" << std::endl;
+    }
+
+    // 21. 测试 LayerNorm — 基础
+    std::cout << "\n--- Day 9 Test: LayerNorm (2D) ---" << std::endl;
+    {
+        Tensor<float> input({2, 4});
+        input.data()[0] = 1.0f; input.data()[1] = 2.0f; input.data()[2] = 3.0f; input.data()[3] = 4.0f;
+        input.data()[4] = 5.0f; input.data()[5] = 6.0f; input.data()[6] = 7.0f; input.data()[7] = 8.0f;
+
+        Tensor<float> weight({4}); weight.fill(1.0f);  // gamma = 1
+        Tensor<float> bias({4});   bias.fill(0.0f);    // beta = 0
+
+        Tensor<float> out = layernorm(input, weight, bias);
+        out.print_info("LayerNorm output (gamma=1, beta=0)");
+
+        // 验证每行均值 ≈ 0
+        float row0_mean = (out.data()[0] + out.data()[1] + out.data()[2] + out.data()[3]) / 4.0f;
+        float row1_mean = (out.data()[4] + out.data()[5] + out.data()[6] + out.data()[7]) / 4.0f;
+        std::cout << "Row 0 mean: " << row0_mean << ", Row 1 mean: " << row1_mean << std::endl;
+        assert(std::abs(row0_mean) < 1e-5f);
+        assert(std::abs(row1_mean) < 1e-5f);
+
+        std::cout << "Test 21 PASSED" << std::endl;
+    }
+
+    // 22. 测试 LayerNorm — 仿射变换 (gamma != 1, beta != 0)
+    std::cout << "\n--- Day 9 Test: LayerNorm with gamma & beta ---" << std::endl;
+    {
+        Tensor<float> input({1, 3});
+        input.data()[0] = 1.0f; input.data()[1] = 2.0f; input.data()[2] = 3.0f;
+
+        Tensor<float> weight({3});
+        weight.data()[0] = 2.0f; weight.data()[1] = 3.0f; weight.data()[2] = 1.0f;
+        Tensor<float> bias({3});
+        bias.data()[0] = 0.5f; bias.data()[1] = -0.5f; bias.data()[2] = 1.0f;
+
+        Tensor<float> out = layernorm(input, weight, bias);
+        out.print_info("LayerNorm output (custom gamma, beta)");
+
+        std::cout << "Test 22 PASSED" << std::endl;
+    }
+
+    // 23. 测试 LayerNorm — 尺寸不匹配应该抛异常
+    std::cout << "\n--- Day 9 Test: LayerNorm shape mismatch ---" << std::endl;
+    {
+        Tensor<float> input({2, 4});
+        input.fill(1.0f);
+        Tensor<float> weight({3}); weight.fill(1.0f);  // 不匹配! 应该是 4
+        Tensor<float> bias({4}); bias.fill(0.0f);
+
+        try {
+            layernorm(input, weight, bias);
+            std::cout << "Test 23 FAILED: should have thrown" << std::endl;
+            return 1;
+        } catch (const std::invalid_argument& e) {
+            std::cout << "Test 23 PASSED: caught expected error: " << e.what() << std::endl;
+        }
+    }
+
+    std::cout << "\n=== All Day 9 Tests Passed ===" << std::endl;
+
+    // ==========================================
+    // Day 10 Tests: Simple Inference Demo
+    // ==========================================
+
+    std::cout << "\n=== Day 10: Simple Inference Demo ===" << std::endl;
+
+    // 24. 简单分类器: Input -> Linear -> Softmax -> Class Probabilities
+    std::cout << "\n--- Day 10 Test: Simple Classifier (Linear + Softmax) ---" << std::endl;
+    {
+        // 场景: 3 分类问题，输入 4 维特征
+        // 输入: [batch=1, features=4]
+        Tensor<float> input({1, 4});
+        input.data()[0] = 0.5f; input.data()[1] = -1.0f;
+        input.data()[2] = 2.0f; input.data()[3] = 0.3f;
+
+        // 权重: [4, 3] (4 输入特征, 3 输出类别)
+        Tensor<float> weight({4, 3});
+        weight.data()[0] =  0.1f; weight.data()[1] = -0.2f; weight.data()[2] =  0.3f;
+        weight.data()[3] =  0.4f; weight.data()[4] =  0.5f; weight.data()[5] = -0.1f;
+        weight.data()[6] = -0.3f; weight.data()[7] =  0.2f; weight.data()[8] =  0.6f;
+        weight.data()[9] =  0.1f; weight.data()[10] = -0.4f; weight.data()[11] = 0.2f;
+
+        // bias: [3]
+        Tensor<float> bias({3});
+        bias.data()[0] = 0.1f; bias.data()[1] = 0.2f; bias.data()[2] = -0.1f;
+
+        // logits = input @ weight + bias
+        // 用 matmul 做 input(1x4) × weight(4x3) = logits(1x3)
+        Tensor<float> logits = matmul(input, weight);
+
+        // 手动加 bias (逐行加)
+        for (int j = 0; j < 3; j++) {
+            logits.data()[j] += bias.data()[j];
+        }
+        logits.print_info("Logits (pre-softmax)");
+
+        // softmax -> 概率分布
+        Tensor<float> probs = softmax(logits);
+        probs.print_info("Class Probabilities (post-softmax)");
+
+        // 验证 sum = 1
+        float prob_sum = probs.data()[0] + probs.data()[1] + probs.data()[2];
+        std::cout << "Probability sum: " << prob_sum << std::endl;
+        assert(std::abs(prob_sum - 1.0f) < 1e-5f);
+
+        // 找 argmax
+        int predicted = 0;
+        if (probs.data()[1] > probs.data()[predicted]) predicted = 1;
+        if (probs.data()[2] > probs.data()[predicted]) predicted = 2;
+        std::cout << "Predicted class: " << predicted << std::endl;
+
+        std::cout << "Test 24 PASSED" << std::endl;
+    }
+
+    // 25. Mini Transformer Block: LayerNorm -> QKV Projection -> Attention -> Output
+    std::cout << "\n--- Day 10 Test: Mini Transformer Block ---" << std::endl;
+    {
+        // 模拟: batch=1, seq_len=3, hidden=4
+        Tensor<float> x({3, 4});
+        // 填入一些模拟的 token embeddings
+        float x_data[] = {
+            0.1f, -0.2f,  0.3f,  0.1f,   // token 0
+           -0.1f,  0.4f, -0.3f,  0.2f,   // token 1
+            0.2f,  0.1f,  0.1f, -0.4f,   // token 2
+        };
+        for (int i = 0; i < 12; i++) x.data()[i] = x_data[i];
+        x.print_info("Input embeddings (3 tokens, hidden=4)");
+
+        // Step 1: LayerNorm
+        Tensor<float> gamma({4}); gamma.fill(1.0f);
+        Tensor<float> beta({4});  beta.fill(0.0f);
+        Tensor<float> x_norm = layernorm(x, gamma, beta);
+        x_norm.print_info("After LayerNorm (per-token normalized)");
+
+        // Step 2: QKV projection (简化: 用 matmul)
+        // hidden=4, 每个头 dim=2, 这里简化为 Q = x_norm @ Wq
+        Tensor<float> Wq({4, 2});
+        Wq.data()[0] = 0.5f; Wq.data()[1] = -0.3f;
+        Wq.data()[2] = 0.2f; Wq.data()[3] = 0.6f;
+        Wq.data()[4] = -0.1f; Wq.data()[5] = 0.4f;
+        Wq.data()[6] = 0.3f; Wq.data()[7] = -0.2f;
+
+        // Q = x_norm(3x4) @ Wq(4x2) = Q(3x2)
+        Tensor<float> Q = matmul(x_norm, Wq);
+        Q.print_info("Query (Q)");
+
+        // K = Q (简化, self-attention 中 K=Q)
+        Tensor<float> K = Q;  // 移动语义
+
+        // V = x_norm @ Wv (类似)
+        Tensor<float> Wv({4, 2});
+        Wv.data()[0] = 0.3f; Wv.data()[1] = 0.1f;
+        Wv.data()[2] = -0.2f; Wv.data()[3] = 0.5f;
+        Wv.data()[4] = 0.4f; Wv.data()[5] = -0.1f;
+        Wv.data()[6] = 0.1f; Wv.data()[7] = 0.3f;
+        Tensor<float> V = matmul(x_norm, Wv);
+        V.print_info("Value (V)");
+
+        // Step 3: Attention scores = Q @ K^T (简化)
+        // K^T = (3x2)^T = (2x3), 所以需要手动构造
+        Tensor<float> Kt({2, 3});
+        for (int i = 0; i < 3; i++)
+            for (int j = 0; j < 2; j++)
+                Kt.data()[j * 3 + i] = K.data()[i * K.stride()[0] + j];
+
+        // scores = Q(3x2) @ Kt(2x3) = (3x3)
+        Tensor<float> scores = matmul(Q, Kt);
+        scores.print_info("Attention scores (Q @ K^T)");
+
+        // Step 4: softmax on scores (按行)
+        Tensor<float> attention = softmax(scores);
+        attention.print_info("Attention weights (softmax)");
+
+        // 验证每行 sum = 1
+        for (int i = 0; i < 3; i++) {
+            float row_sum = 0;
+            for (int j = 0; j < 3; j++) row_sum += attention.data()[i * attention.stride()[0] + j];
+            assert(std::abs(row_sum - 1.0f) < 1e-5f);
+        }
+
+        // Step 5: Output = attention @ V
+        Tensor<float> output = matmul(attention, V);
+        output.print_info("Attention output");
+
+        std::cout << "Test 25 PASSED" << std::endl;
+    }
+
+    std::cout << "\n=== All Day 10 Tests Passed ===" << std::endl;
+    std::cout << "\n=== MiniTensor v0.2 Complete! ===" << std::endl;
+
     return 0;
 }

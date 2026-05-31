@@ -6,7 +6,7 @@
 #include <stdexcept>
 #include <memory>
 #include<vector>
-
+#include <cmath>
 template<typename T> 
 class Tensor {
 public:
@@ -48,6 +48,15 @@ public:
     // 声明友元函数 (类外定义)
     template<typename U>
     friend Tensor<U> matmul(const Tensor<U>& a, const Tensor<U>& b);
+
+    template<typename U>
+    friend Tensor<U> softmax(const Tensor<U>& input);
+
+    template<typename U>
+    friend Tensor<U> layernorm(const Tensor<U>& input,
+                                const Tensor<U>& weight,
+                                const Tensor<U>& bias,
+                                U eps);
 
 private:
     std::unique_ptr<T[]> data_ptr_; // 模拟显存/内存指针
@@ -261,4 +270,86 @@ Tensor<T> matmul(const Tensor<T>& a, const Tensor<T>& b){
     }
     return c;
 }
+// softmax: 沿最后一维做 softmax (数值稳定版本)
+template<typename T>
+Tensor<T> softmax(const Tensor<T>& input) {
+    if (input.shape().size() != 2) {
+        throw std::invalid_argument("softmax: input must be 2D");
+    }
+
+    Tensor<T> output(input.shape());
+    int rows = input.shape()[0];
+    int cols = input.shape()[1];
+
+    for (int i = 0; i < rows; i++) {
+        // 1. 找最大值 (数值稳定性: 防止 exp 溢出)
+        T max_val = input.data()[i * input.stride()[0] + 0];
+        for (int j = 1; j < cols; j++) {
+            T val = input.data()[i * input.stride()[0] + j];
+            if (val > max_val) max_val = val;
+        }
+
+        // 2. 算 exp(x - max) 之和
+        T sum = 0;
+        for (int j = 0; j < cols; j++) {
+            sum += std::exp(input.data()[i * input.stride()[0] + j] - max_val);
+        }
+
+        // 3. 归一化: 每个元素 / sum
+        for (int j = 0; j < cols; j++) {
+            output.data()[i * output.stride()[0] + j] =
+                std::exp(input.data()[i * input.stride()[0] + j] - max_val) / sum;
+        }
+    }
+
+    return output;
+}
+
+// layernorm: 沿最后一维做 Layer Normalization
+// input: [N, D], weight: [D], bias: [D]
+// output[i][j] = weight[j] * (input[i][j] - mean_i) / sqrt(var_i + eps) + bias[j]
+template<typename T>
+Tensor<T> layernorm(const Tensor<T>& input,
+                    const Tensor<T>& weight,
+                    const Tensor<T>& bias,
+                    T eps = static_cast<T>(1e-5)) {
+    if (input.shape().size() != 2) {
+        throw std::invalid_argument("layernorm: input must be 2D");
+    }
+
+    int last_dim = input.shape()[1];
+    if (weight.size() != last_dim || bias.size() != last_dim) {
+        throw std::invalid_argument("layernorm: weight/bias size must match last dim");
+    }
+
+    Tensor<T> output(input.shape());
+    int rows = input.shape()[0];
+
+    for (int i = 0; i < rows; i++) {
+        // 1. 算均值
+        T mean = 0;
+        for (int j = 0; j < last_dim; j++) {
+            mean += input.data()[i * input.stride()[0] + j];
+        }
+        mean /= static_cast<T>(last_dim);
+
+        // 2. 算方差
+        T var = 0;
+        for (int j = 0; j < last_dim; j++) {
+            T diff = input.data()[i * input.stride()[0] + j] - mean;
+            var += diff * diff;
+        }
+        var /= static_cast<T>(last_dim);
+
+        // 3. 归一化 + 仿射变换 (gamma * normed + beta)
+        for (int j = 0; j < last_dim; j++) {
+            int idx = i * input.stride()[0] + j;
+            output.data()[idx] = weight.data()[j] *
+                (input.data()[idx] - mean) / std::sqrt(var + eps) + bias.data()[j];
+        }
+    }
+
+    return output;
+}
+
 #endif
