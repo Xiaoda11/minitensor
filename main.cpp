@@ -511,5 +511,103 @@ int main() {
     std::cout << "\n=== All Day 10 Tests Passed ===" << std::endl;
     std::cout << "\n=== MiniTensor v0.2 Complete! ===" << std::endl;
 
+    // ==========================================
+    // Day 11 Tests: Blocked Matmul
+    // ==========================================
+
+    std::cout << "\n=== Day 11: Blocked Matmul ===" << std::endl;
+
+    // 26. 验证 matmul_blocked 与 matmul 结果一致
+    std::cout << "\n--- Day 11 Test: Blocked vs Original (2x3 × 3x2) ---" << std::endl;
+    {
+        Tensor<float> a({2, 3});
+        Tensor<float> b({3, 2});
+
+        float a_data[] = {1, 2, 3, 4, 5, 6};
+        for (int i = 0; i < 6; i++) a.data()[i] = a_data[i];
+
+        float b_data[] = {7, 8, 9, 10, 11, 12};
+        for (int i = 0; i < 6; i++) b.data()[i] = b_data[i];
+
+        Tensor<float> c_original = matmul(a, b);
+        Tensor<float> c_blocked = matmul_blocked(a, b, 32);
+
+        // 逐元素比较
+        bool match = true;
+        for (int i = 0; i < c_original.size(); i++) {
+            if (std::abs(c_original.data()[i] - c_blocked.data()[i]) > 1e-5f) {
+                match = false;
+                break;
+            }
+        }
+        if (!match) {
+            std::cout << "Test 26 FAILED: results differ" << std::endl;
+            c_original.print_info("Original");
+            c_blocked.print_info("Blocked");
+            return 1;
+        }
+        c_blocked.print_info("Blocked result (matches original)");
+        std::cout << "Test 26 PASSED" << std::endl;
+    }
+
+    // 27. 测试较大矩阵 (64x64)
+    std::cout << "\n--- Day 11 Test: Large Matrix (64x64) ---" << std::endl;
+    {
+        int sz = 64;
+        Tensor<float> a({sz, sz});
+        Tensor<float> b({sz, sz});
+
+        // 填充随机数据
+        for (int i = 0; i < sz * sz; i++) {
+            a.data()[i] = static_cast<float>(rand()) / RAND_MAX;
+            b.data()[i] = static_cast<float>(rand()) / RAND_MAX;
+        }
+
+        Tensor<float> c_original = matmul(a, b);
+        Tensor<float> c_blocked = matmul_blocked(a, b, 16);  // 小 tile 测试边界
+
+        bool match = true;
+        for (int i = 0; i < sz * sz; i++) {
+            if (std::abs(c_original.data()[i] - c_blocked.data()[i]) > 1e-3f) {
+                match = false;
+                break;
+            }
+        }
+        if (!match) {
+            std::cout << "Test 27 FAILED: results differ" << std::endl;
+            return 1;
+        }
+        std::cout << "Test 27 PASSED (64x64, tile=16)" << std::endl;
+    }
+
+    // 28. 测试非对齐尺寸 (不能被 tile_size 整除)
+    std::cout << "\n--- Day 11 Test: Non-aligned Size (50x73) ---" << std::endl;
+    {
+        Tensor<float> a({50, 40});
+        Tensor<float> b({40, 73});
+
+        for (int i = 0; i < 50 * 40; i++) a.data()[i] = static_cast<float>(i) * 0.01f;
+        for (int i = 0; i < 40 * 73; i++) b.data()[i] = static_cast<float>(i) * 0.02f;
+
+        Tensor<float> c_original = matmul(a, b);
+        Tensor<float> c_blocked = matmul_blocked(a, b, 32);
+
+        bool match = true;
+        for (int i = 0; i < 50 * 73; i++) {
+            if (std::abs(c_original.data()[i] - c_blocked.data()[i]) > 1e-3f) {
+                match = false;
+                break;
+            }
+        }
+        if (!match) {
+            std::cout << "Test 28 FAILED" << std::endl;
+            return 1;
+        }
+        std::cout << "Test 28 PASSED (50x73, tile=32)" << std::endl;
+    }
+
+    std::cout << "\n=== All Day 11 Tests Passed ===" << std::endl;
+    std::cout << "\n=== MiniTensor v0.3 In Progress ===" << std::endl;
+
     return 0;
 }

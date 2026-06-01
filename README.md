@@ -45,7 +45,8 @@ make
 - [x] Simple inference demo (classifier + mini attention block)
 
 **In Progress:**
-- [ ] v0.3 — Computation graph construction & operator dispatch
+- [x] v0.3 Day 11 — Blocked Matmul (loop tiling, cache-friendly GEMM)
+- [ ] v0.3 Day 12-15 — Broadcasting, fused ops, computation graph, operator dispatch
 
 ## Architecture
 

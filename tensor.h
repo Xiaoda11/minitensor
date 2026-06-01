@@ -7,7 +7,7 @@
 #include <memory>
 #include <vector>
 #include <cmath>
-
+#include <algorithm>
 /**
  * @brief MiniTensor: 一个简易的 N 维张量类
  * 主要用于学习：内存管理 (Rule of 5), 广播机制基础, 以及基本算子实现。
@@ -64,7 +64,8 @@ public:
                                const Tensor<U>& weight,
                                const Tensor<U>& bias,
                                U eps);
-
+    template <typename U>
+    friend Tensor<U> matmul_blocked(const Tensor<U>& a, const Tensor<U>& b, int tile_size);
 private:
     std::unique_ptr<T[]> data_ptr_; ///< 原始数据指针 (模拟显存/内存)
     std::vector<int> shape_;        ///< 维度信息 (如 {2, 3, 4})
@@ -332,6 +333,48 @@ Tensor<T> layernorm(const Tensor<T>& input,
         }
     }
     return output;
+}
+/// @brief 矩阵乘法 (分块版本，缓存友好)
+///        计算 C = A @ B，维度要求: A[M,K] x B[K,N] -> C[M,N]
+template <typename T>
+Tensor<T> matmul_blocked(const Tensor<T>& a, const Tensor<T>& b, int tile_size = 32) {
+    if (a.shape().size() != 2 || b.shape().size() != 2)
+        throw std::invalid_argument("matmul_blocked: 输入必须是 2D 张量");
+    if (a.shape()[1] != b.shape()[0])
+        throw std::invalid_argument("matmul_blocked: 内部维度必须匹配");
+
+    int M = a.shape()[0];
+    int K = a.shape()[1];
+    int N = b.shape()[1];
+
+    Tensor<T> c({M, N});
+    c.fill(static_cast<T>(0));  // 必须清零，因为内层是 += 累加
+
+    // 提取指针和步长，避免内层循环重复调用函数
+    const T* a_data = a.data();
+    const T* b_data = b.data();
+    T* c_data = c.data();
+    int a_stride = a.stride()[0];
+    int b_stride = b.stride()[0];
+    int c_stride = c.stride()[0];
+
+    // 6 层循环：外层分块 + 内层 i-k-j 顺序
+    for (int ii = 0; ii < M; ii += tile_size) {
+        for (int jj = 0; jj < N; jj += tile_size) {
+            for (int kk = 0; kk < K; kk += tile_size) {
+                for (int i = ii; i < std::min(ii + tile_size, M); ++i) {
+                    for (int k = kk; k < std::min(kk + tile_size, K); ++k) {
+                        T a_val = a_data[i * a_stride + k];  // 提为循环不变量
+                        for (int j = jj; j < std::min(jj + tile_size, N); ++j) {
+                            c_data[i * c_stride + j] += a_val * b_data[k * b_stride + j];
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    return c;
 }
 
 #endif // TENSOR_H
