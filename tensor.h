@@ -51,6 +51,10 @@ public:
     /// @brief 打印张量信息 (调试用)
     void print_info(const std::string& name = "Tensor") const;
 
+ // =================  形状转换 =================
+    Tensor reshape(const std::vector<int>& new_shape) const;
+    Tensor transpose(int dim0, int dim1) const;
+
     // ================= 4. 友元声明 (外部算子) =================
 
     template <typename U>
@@ -511,6 +515,80 @@ Tensor<T> matmul_blocked(const Tensor<T>& a, const Tensor<T>& b, int tile_size =
     }
 
     return c;
+}
+template <typename T>
+Tensor<T> Tensor<T>::reshape(const std::vector<int>& new_shape) const {
+    // 1. 验证元素总数不变
+    int new_numel = 1;
+    for (int dim : new_shape) {
+        if (dim <= 0) throw std::invalid_argument("reshape: 维度大小必须为正数");
+        new_numel *= dim;
+    }
+    if (new_numel != numel_) {
+        throw std::invalid_argument(
+            "reshape: 元素总数不匹配 — 当前 " + std::to_string(numel_) +
+            ", 目标 " + std::to_string(new_numel));
+    }
+
+    // 2. 创建新张量（按 new_shape 分配内存和 stride）
+    Tensor<T> result(new_shape);
+
+    // 3. 拷贝数据 — reshape 不改变数据顺序，只是 reinterpret
+    //    因为我们始终维护 contiguous 内存，所以直接逐元素拷贝即可
+    for (int i = 0; i < numel_; ++i) {
+        result.data_ptr_[i] = data_ptr_[i];
+    }
+
+    return result;
+}
+
+template <typename T>
+Tensor<T> Tensor<T>::transpose(int dim0, int dim1) const {
+    int ndim = shape_.size();
+    // 1. 支持负索引: -1 表示最后一个维度
+    if (dim0 < 0) dim0 += ndim;
+    if (dim1 < 0) dim1 += ndim;
+
+    // 2. 边界检查
+    if (dim0 < 0 || dim0 >= ndim || dim1 < 0 || dim1 >= ndim) {
+        throw std::invalid_argument("transpose: 维度超出范围");
+    }
+
+    // 3. 构建新的 shape 和 stride — 交换 dim0 和 dim1
+    std::vector<int> new_shape = shape_;
+    std::vector<int> new_stride = stride_;
+    std::swap(new_shape[dim0], new_shape[dim1]);
+    std::swap(new_stride[dim0], new_stride[dim1]);
+
+    // 4. 创建结果张量 — 使用 new_stride 构造
+    //    但 Tensor 构造函数会自己算 stride，所以我们需要一个不同的方式:
+    //    创建一个 contiguous 的新张量，然后通过 ND 索引映射填充转置后的数据
+    Tensor<T> result(new_shape);
+
+    // 5. ND 索引映射: 遍历原张量的每个线性索引
+    //    找到其多维坐标，交换 dim0/dim1 坐标后，计算在新张量中的位置
+    for (int i = 0; i < numel_; ++i) {
+        // 线性索引 → 多维坐标
+        int remainder = i;
+        std::vector<int> coords(ndim);
+        for (int d = ndim - 1; d >= 0; --d) {
+            coords[d] = remainder % shape_[d];
+            remainder /= shape_[d];
+        }
+
+        // 交换 dim0 和 dim1 的坐标
+        std::swap(coords[dim0], coords[dim1]);
+
+        // 多维坐标 → 新张量的线性索引
+        int new_idx = 0;
+        for (int d = 0; d < ndim; ++d) {
+            new_idx += coords[d] * result.stride()[d];
+        }
+
+        result.data_ptr_[new_idx] = data_ptr_[i];
+    }
+
+    return result;
 }
 
 #endif // TENSOR_H

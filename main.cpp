@@ -774,5 +774,169 @@ int main() {
 
     std::cout << "\n=== All Day 12 Tests Passed ===" << std::endl;
 
+    // ==========================================
+    // Day 13 Tests: Reshape & Transpose
+    // ==========================================
+
+    std::cout << "\n=== Day 13: Reshape & Transpose ===" << std::endl;
+
+    // 37. Reshape: 1D → 2D
+    std::cout << "\n--- Day 13 Test: Reshape 1D → 2D ({6} → {2,3}) ---" << std::endl;
+    {
+        Tensor<float> a(6);
+        for (int i = 0; i < 6; i++) a.data()[i] = static_cast<float>(i) + 1.0f;
+        // a = [1, 2, 3, 4, 5, 6]
+
+        Tensor<float> b = a.reshape({2, 3});
+        b.print_info("B = reshape({2,3})");
+        assert(b.shape()[0] == 2 && b.shape()[1] == 3);
+        assert(b.stride()[0] == 3 && b.stride()[1] == 1);
+        // 数据顺序不变: b[0,:] = [1,2,3], b[1,:] = [4,5,6]
+        assert(std::abs(b.data()[0] - 1.0f) < 1e-5f);
+        assert(std::abs(b.data()[1] - 2.0f) < 1e-5f);
+        assert(std::abs(b.data()[2] - 3.0f) < 1e-5f);
+        assert(std::abs(b.data()[3] - 4.0f) < 1e-5f);
+        assert(std::abs(b.data()[4] - 5.0f) < 1e-5f);
+        assert(std::abs(b.data()[5] - 6.0f) < 1e-5f);
+        std::cout << "Test 37 PASSED" << std::endl;
+    }
+
+    // 38. Reshape: 2D → 1D (扁平化)
+    std::cout << "\n--- Day 13 Test: Reshape 2D → 1D ({2,3} → {6}) ---" << std::endl;
+    {
+        Tensor<float> a({2, 3});
+        for (int i = 0; i < 6; i++) a.data()[i] = static_cast<float>(i) + 10.0f;
+
+        Tensor<float> b = a.reshape({6});
+        b.print_info("B = reshape({6})");
+        assert(b.shape().size() == 1 && b.shape()[0] == 6);
+        assert(b.stride()[0] == 1);
+        for (int i = 0; i < 6; i++) {
+            assert(std::abs(b.data()[i] - (static_cast<float>(i) + 10.0f)) < 1e-5f);
+        }
+        std::cout << "Test 38 PASSED" << std::endl;
+    }
+
+    // 39. Reshape: 3D → 2D
+    std::cout << "\n--- Day 13 Test: Reshape 3D → 2D ({2,3,4} → {6,4}) ---" << std::endl;
+    {
+        Tensor<float> a({2, 3, 4});
+        for (int i = 0; i < 24; i++) a.data()[i] = static_cast<float>(i);
+
+        Tensor<float> b = a.reshape({6, 4});
+        b.print_info("B = reshape({6,4})");
+        assert(b.shape()[0] == 6 && b.shape()[1] == 4);
+        assert(b.stride()[0] == 4 && b.stride()[1] == 1);
+        // 数据顺序不变，只是形状变了
+        for (int i = 0; i < 24; i++) {
+            assert(std::abs(b.data()[i] - static_cast<float>(i)) < 1e-5f);
+        }
+        std::cout << "Test 39 PASSED" << std::endl;
+    }
+
+    // 40. Reshape: 不匹配的元素总数应该抛异常
+    std::cout << "\n--- Day 13 Test: Reshape invalid numel ---" << std::endl;
+    {
+        Tensor<float> a({2, 3});
+        try {
+            a.reshape({2, 5});  // 6 ≠ 10
+            std::cout << "Test 40 FAILED: should have thrown" << std::endl;
+            return 1;
+        } catch (const std::invalid_argument& e) {
+            std::cout << "Test 40 PASSED: caught: " << e.what() << std::endl;
+        }
+    }
+
+    // 41. Transpose: 2D 矩阵转置
+    std::cout << "\n--- Day 13 Test: Transpose 2D ({2,3} → {3,2}) ---" << std::endl;
+    {
+        Tensor<float> a({2, 3});
+        // a = [[1, 2, 3],
+        //      [4, 5, 6]]
+        for (int i = 0; i < 6; i++) a.data()[i] = static_cast<float>(i) + 1.0f;
+
+        Tensor<float> b = a.transpose(0, 1);
+        b.print_info("B = transpose(0,1)");
+        assert(b.shape()[0] == 3 && b.shape()[1] == 2);
+        // b = [[1, 4],
+        //      [2, 5],
+        //      [3, 6]]
+        assert(std::abs(b.data()[0] - 1.0f) < 1e-5f);  // b[0,0] = a[0,0]
+        assert(std::abs(b.data()[1] - 4.0f) < 1e-5f);  // b[0,1] = a[1,0]
+        assert(std::abs(b.data()[2] - 2.0f) < 1e-5f);  // b[1,0] = a[0,1]
+        assert(std::abs(b.data()[3] - 5.0f) < 1e-5f);  // b[1,1] = a[1,1]
+        assert(std::abs(b.data()[4] - 3.0f) < 1e-5f);  // b[2,0] = a[0,2]
+        assert(std::abs(b.data()[5] - 6.0f) < 1e-5f);  // b[2,1] = a[1,2]
+        std::cout << "Test 41 PASSED" << std::endl;
+    }
+
+    // 42. Transpose: 3D 张量 — 交换非相邻维度
+    std::cout << "\n--- Day 13 Test: Transpose 3D non-adjacent dims ---" << std::endl;
+    {
+        Tensor<float> a({2, 3, 4});
+        for (int i = 0; i < 24; i++) a.data()[i] = static_cast<float>(i);
+
+        Tensor<float> b = a.transpose(0, 2);  // 交换第0和第2维
+        b.print_info("B = transpose(0,2)");
+        assert(b.shape()[0] == 4 && b.shape()[1] == 3 && b.shape()[2] == 2);
+
+        // 验证 b[i,j,k] == a[k,j,i]
+        // 例如: b[1,0,0] 应该对应 a[0,0,1]
+        // a[0,0,1] 的线性索引 = 0*12 + 0*4 + 1 = 1, 值 = 1
+        // b[1,0,0] 的线性索引 = 1*6 + 0*2 + 0 = 6
+        assert(std::abs(b.data()[6] - 1.0f) < 1e-5f);
+
+        // a[1,2,3] = 1*12 + 2*4 + 3 = 12+8+3 = 23
+        // b[3,2,1] = 3*6 + 2*2 + 1 = 18+4+1 = 23
+        assert(std::abs(b.data()[23] - 23.0f) < 1e-5f);
+        std::cout << "Test 42 PASSED" << std::endl;
+    }
+
+    // 43. Transpose: 负索引支持
+    std::cout << "\n--- Day 13 Test: Transpose negative indices ---" << std::endl;
+    {
+        Tensor<float> a({2, 3});
+        for (int i = 0; i < 6; i++) a.data()[i] = static_cast<float>(i) + 1.0f;
+
+        // transpose(0, -1) 等价于 transpose(0, 1)
+        Tensor<float> b = a.transpose(0, -1);
+        assert(b.shape()[0] == 3 && b.shape()[1] == 2);
+        assert(std::abs(b.data()[0] - 1.0f) < 1e-5f);
+        assert(std::abs(b.data()[1] - 4.0f) < 1e-5f);
+        std::cout << "Test 43 PASSED" << std::endl;
+    }
+
+    // 44. Transpose: 维度超出范围应该抛异常
+    std::cout << "\n--- Day 13 Test: Transpose invalid dim ---" << std::endl;
+    {
+        Tensor<float> a({2, 3});
+        try {
+            a.transpose(0, 5);  // dim 5 不存在
+            std::cout << "Test 44 FAILED: should have thrown" << std::endl;
+            return 1;
+        } catch (const std::invalid_argument& e) {
+            std::cout << "Test 44 PASSED: caught: " << e.what() << std::endl;
+        }
+    }
+
+    // 45. Reshape + Transpose 链式操作: reshape → transpose → reshape
+    std::cout << "\n--- Day 13 Test: Reshape → Transpose → Reshape chain ---" << std::endl;
+    {
+        Tensor<float> a(12);
+        for (int i = 0; i < 12; i++) a.data()[i] = static_cast<float>(i) + 1.0f;
+
+        // a: {12} → reshape → {3, 4} → transpose(0,1) → {4, 3} → reshape → {2, 6}
+        Tensor<float> b = a.reshape({3, 4});
+        Tensor<float> c = b.transpose(0, 1);
+        Tensor<float> d = c.reshape({2, 6});
+
+        d.print_info("D = reshape→transpose→reshape");
+        assert(d.shape()[0] == 2 && d.shape()[1] == 6);
+        assert(d.size() == 12);
+        std::cout << "Test 45 PASSED" << std::endl;
+    }
+
+    std::cout << "\n=== All Day 13 Tests Passed ===" << std::endl;
+
     return 0;
 }
