@@ -165,7 +165,42 @@ T* Tensor<T>::data() { return data_ptr_.get(); }
 template <typename T>
 const T* Tensor<T>::data() const { return data_ptr_.get(); }
 
-// --- 3. 运算符 ---
+// --- 3. Broadcasting 工具函数 ---
+
+/// @brief 判断两个 shape 是否可以广播
+/// 规则：从后往前逐维比较，满足以下之一即兼容：
+///   (1) 两维相等
+///   (2) 其中一维为 1
+///   (3) 其中一维不存在（短的那个视为 1）
+inline bool can_broadcast(const std::vector<int>& a, const std::vector<int>& b) {
+    int na = a.size();
+    int nb = b.size();
+    int n = std::max(na, nb);
+    for (int i = 0; i < n; ++i) {
+        int dim_a = (i < na) ? a[na - 1 - i] : 1;  // 从后往前取，缺失视为 1
+        int dim_b = (i < nb) ? b[nb - 1 - i] : 1;
+        if (dim_a != dim_b && dim_a != 1 && dim_b != 1) {
+            return false;
+        }
+    }
+    return true; 
+}
+
+/// @brief 计算广播后的结果 shape
+inline std::vector<int> broadcast_shape(const std::vector<int>& a, const std::vector<int>& b) {
+    int na = a.size();
+    int nb = b.size();
+    int n = std::max(na, nb);
+    std::vector<int> result(n);
+    for (int i = 0; i < n; ++i) {
+        int dim_a = (i < na) ? a[na - 1 - i] : 1;
+        int dim_b = (i < nb) ? b[nb - 1 - i] : 1;
+        result[n - 1 - i] = std::max(dim_a, dim_b);
+    }
+    return result;
+}
+
+// --- 4. 运算符 ---
 
 template <typename T>
 void Tensor<T>::fill(T value) {
@@ -175,9 +210,58 @@ void Tensor<T>::fill(T value) {
 
 template <typename T>
 Tensor<T> Tensor<T>::operator+(const Tensor& other) const {
-    if (numel_ != other.numel_) throw std::invalid_argument("加法：形状不匹配");
-    Tensor result(shape_);
-    for (int i = 0; i < numel_; ++i) result.data_ptr_[i] = data_ptr_[i] + other.data_ptr_[i];
+    // 1. 检查是否可以广播
+    if (!can_broadcast(shape_, other.shape_)) {
+        throw std::invalid_argument("加法：形状无法广播");
+    }
+    
+    // 2. 计算广播后的结果 shape
+    auto out_shape = broadcast_shape(shape_, other.shape_);
+    Tensor result(out_shape);
+    
+    // 3. 判断是否需要走广播路径
+    bool need_broadcast = (shape_ != other.shape_);
+    
+    if (need_broadcast) {
+        // 广播路径：用 ND 索引映射
+        int ndim = out_shape.size();
+        
+        struct DimInfo {
+            int out_dim;
+            int a_stride;
+            int b_stride;
+        };
+        std::vector<DimInfo> dims(ndim);
+        for (int d = 0; d < ndim; ++d) {
+            dims[d].out_dim = out_shape[d];
+            int a_ndim = shape_.size();
+            int a_idx = d - (ndim - a_ndim);
+            dims[d].a_stride = (a_idx >= 0 && shape_[a_idx] != 1) ? stride_[a_idx] : 0;
+            
+            int b_ndim = other.shape_.size();
+            int b_idx = d - (ndim - b_ndim);
+            dims[d].b_stride = (b_idx >= 0 && other.shape_[b_idx] != 1) ? other.stride_[b_idx] : 0;
+        }
+        
+        for (int i = 0; i < result.numel_; ++i) {
+            // 线性索引 → 多维坐标：从后往前取模
+            int remainder = i;
+            int a_offset = 0;
+            int b_offset = 0;
+            for (int d = ndim - 1; d >= 0; --d) {
+                int coord = remainder % dims[d].out_dim;
+                remainder /= dims[d].out_dim;
+                a_offset += coord * dims[d].a_stride;
+                b_offset += coord * dims[d].b_stride;
+            }
+            result.data_ptr_[i] = data_ptr_[a_offset] + other.data_ptr_[b_offset];
+        }
+    } else {
+        // 快速路径：shape 完全相同
+        for (int i = 0; i < numel_; ++i) {
+            result.data_ptr_[i] = data_ptr_[i] + other.data_ptr_[i];
+        }
+    }
     return result;
 }
 
@@ -190,9 +274,61 @@ Tensor<T>& Tensor<T>::operator+=(const Tensor& other) {
 
 template <typename T>
 Tensor<T> Tensor<T>::operator*(const Tensor& other) const {
-    if (numel_ != other.numel_) throw std::invalid_argument("乘法：形状不匹配");
-    Tensor result(shape_);
-    for (int i = 0; i < numel_; ++i) result.data_ptr_[i] = data_ptr_[i] * other.data_ptr_[i];
+    // 1. 检查是否可以广播
+    if (!can_broadcast(shape_, other.shape_)) {
+        throw std::invalid_argument("乘法：形状无法广播");
+    }
+    
+    // 2. 计算广播后的结果 shape
+    auto out_shape = broadcast_shape(shape_, other.shape_);
+    Tensor result(out_shape);
+    
+    // 3. 判断是否需要走广播路径
+    bool need_broadcast = (shape_ != other.shape_);
+    
+    if (need_broadcast) {
+        // 广播路径：用 ND 索引映射
+        int ndim = out_shape.size();
+        
+        // 预计算每个维度的信息，避免内层循环重复调用
+        struct DimInfo {
+            int out_dim;    // 输出维度大小
+            int a_stride;   // a 在该维的 stride（如果该维为 1 则 stride 视为 0）
+            int b_stride;   // b 在该维的 stride（如果该维为 1 则 stride 视为 0）
+        };
+        std::vector<DimInfo> dims(ndim);
+        for (int d = 0; d < ndim; ++d) {
+            dims[d].out_dim = out_shape[d];
+            // 如果 a 在该维度存在且不为 1，用真实 stride；否则 stride=0（索引不变）
+            int a_ndim = shape_.size();
+            int a_idx = d - (ndim - a_ndim);  // a 的维度对齐到输出维度
+            dims[d].a_stride = (a_idx >= 0 && shape_[a_idx] != 1) ? stride_[a_idx] : 0;
+            
+            int b_ndim = other.shape_.size();
+            int b_idx = d - (ndim - b_ndim);
+            dims[d].b_stride = (b_idx >= 0 && other.shape_[b_idx] != 1) ? other.stride_[b_idx] : 0;
+        }
+        
+        // 主循环：线性遍历输出，ND 索引映射
+        for (int i = 0; i < result.numel_; ++i) {
+            // 线性索引 → 多维坐标：从后往前取模
+            int remainder = i;
+            int a_offset = 0;
+            int b_offset = 0;
+            for (int d = ndim - 1; d >= 0; --d) {
+                int coord = remainder % dims[d].out_dim;
+                remainder /= dims[d].out_dim;
+                a_offset += coord * dims[d].a_stride;
+                b_offset += coord * dims[d].b_stride;
+            }
+            result.data_ptr_[i] = data_ptr_[a_offset] * other.data_ptr_[b_offset];
+        }
+    } else {
+        // 快速路径：shape 完全相同，直接逐元素乘
+        for (int i = 0; i < numel_; ++i) {
+            result.data_ptr_[i] = data_ptr_[i] * other.data_ptr_[i];
+        }
+    }
     return result;
 }
 

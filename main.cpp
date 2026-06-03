@@ -609,5 +609,170 @@ int main() {
     std::cout << "\n=== All Day 11 Tests Passed ===" << std::endl;
     std::cout << "\n=== MiniTensor v0.3 In Progress ===" << std::endl;
 
+    // ==========================================
+    // Day 12 Tests: Broadcasting
+    // ==========================================
+
+    std::cout << "\n=== Day 12: Broadcasting ===" << std::endl;
+
+    // 29. 行广播: {1, 3} + {4, 3} → {4, 3}
+    std::cout << "\n--- Day 12 Test: Row Broadcasting ({1,3} + {4,3}) ---" << std::endl;
+    {
+        Tensor<float> a({1, 3});
+        a.data()[0] = 10.0f; a.data()[1] = 20.0f; a.data()[2] = 30.0f;
+
+        Tensor<float> b({4, 3});
+        for (int i = 0; i < 12; i++) b.data()[i] = static_cast<float>(i) + 1.0f;
+        // b = [[1,2,3], [4,5,6], [7,8,9], [10,11,12]]
+
+        Tensor<float> c = a + b;
+        c.print_info("C = A + B (row broadcast)");
+        assert(c.shape()[0] == 4 && c.shape()[1] == 3);
+        // 第 0 行: 10+1=11, 20+2=22, 30+3=33
+        assert(std::abs(c.data()[0] - 11.0f) < 1e-5f);
+        assert(std::abs(c.data()[1] - 22.0f) < 1e-5f);
+        assert(std::abs(c.data()[2] - 33.0f) < 1e-5f);
+        // 第 1 行: 10+4=14, 20+5=25, 30+6=36
+        assert(std::abs(c.data()[3] - 14.0f) < 1e-5f);
+        assert(std::abs(c.data()[4] - 25.0f) < 1e-5f);
+        assert(std::abs(c.data()[5] - 36.0f) < 1e-5f);
+        // a[0,0]=10 被复用了 4 次，验证广播正确
+        std::cout << "Test 29 PASSED" << std::endl;
+    }
+
+    // 30. 列广播: {4, 1} + {4, 3} → {4, 3}
+    std::cout << "\n--- Day 12 Test: Column Broadcasting ({4,1} + {4,3}) ---" << std::endl;
+    {
+        Tensor<float> a({4, 1});
+        a.data()[0] = 1.0f; a.data()[1] = 2.0f; a.data()[2] = 3.0f; a.data()[3] = 4.0f;
+
+        Tensor<float> b({4, 3});
+        for (int i = 0; i < 12; i++) b.data()[i] = 10.0f;
+
+        Tensor<float> c = a + b;
+        c.print_info("C = A + B (column broadcast)");
+        assert(c.shape()[0] == 4 && c.shape()[1] == 3);
+        // 第 0 行: 1+10=11, 1+10=11, 1+10=11
+        assert(std::abs(c.data()[0] - 11.0f) < 1e-5f);
+        assert(std::abs(c.data()[1] - 11.0f) < 1e-5f);
+        assert(std::abs(c.data()[2] - 11.0f) < 1e-5f);
+        // 第 3 行: 4+10=14, 4+10=14, 4+10=14
+        assert(std::abs(c.data()[9] - 14.0f) < 1e-5f);
+        std::cout << "Test 30 PASSED" << std::endl;
+    }
+
+    // 31. 标量广播: {1} + {4, 3} → {4, 3}
+    std::cout << "\n--- Day 12 Test: Scalar Broadcasting ({1} + {4,3}) ---" << std::endl;
+    {
+        Tensor<float> a({1});
+        a.data()[0] = 100.0f;
+
+        Tensor<float> b({4, 3});
+        for (int i = 0; i < 12; i++) b.data()[i] = static_cast<float>(i);
+
+        Tensor<float> c = a + b;
+        c.print_info("C = A + B (scalar broadcast)");
+        assert(c.shape()[0] == 4 && c.shape()[1] == 3);
+        // 每个元素都加 100
+        assert(std::abs(c.data()[0] - 100.0f) < 1e-5f);
+        assert(std::abs(c.data()[5] - 105.0f) < 1e-5f);
+        assert(std::abs(c.data()[11] - 111.0f) < 1e-5f);
+        std::cout << "Test 31 PASSED" << std::endl;
+    }
+
+    // 32. 多维广播: {2, 1, 4} + {1, 3, 1} → {2, 3, 4}
+    std::cout << "\n--- Day 12 Test: 3D Broadcasting ({2,1,4} + {1,3,1}) ---" << std::endl;
+    {
+        Tensor<float> a({2, 1, 4});
+        for (int i = 0; i < 8; i++) a.data()[i] = static_cast<float>(i) + 1.0f;
+        // a[0,0,:] = [1,2,3,4], a[1,0,:] = [5,6,7,8]
+
+        Tensor<float> b({1, 3, 1});
+        b.data()[0] = 10.0f; b.data()[1] = 20.0f; b.data()[2] = 30.0f;
+        // b[0,0,0]=10, b[0,1,0]=20, b[0,2,0]=30
+
+        Tensor<float> c = a + b;
+        c.print_info("C = A + B (3D broadcast)");
+        assert(c.shape()[0] == 2 && c.shape()[1] == 3 && c.shape()[2] == 4);
+        // c[0,0,:] = a[0,0,:] + b[0,0,0] = [1+10, 2+10, 3+10, 4+10] = [11,12,13,14]
+        assert(std::abs(c.data()[0] - 11.0f) < 1e-5f);
+        assert(std::abs(c.data()[3] - 14.0f) < 1e-5f);
+        // c[1,2,:] = a[1,0,:] + b[0,2,0] = [5+30, 6+30, 7+30, 8+30] = [35,36,37,38]
+        int offset_120 = 1 * c.stride()[0] + 2 * c.stride()[1];  // = 12 + 4 = 16
+        assert(std::abs(c.data()[offset_120] - 35.0f) < 1e-5f);
+        assert(std::abs(c.data()[offset_120 + 3] - 38.0f) < 1e-5f);
+        std::cout << "Test 32 PASSED" << std::endl;
+    }
+
+    // 33. 不兼容 shape 应该抛异常
+    std::cout << "\n--- Day 12 Test: Incompatible shapes should throw ---" << std::endl;
+    {
+        Tensor<float> a({4, 3});
+        Tensor<float> b({4, 5});  // dim 1: 3 != 5, 且都不是 1
+
+        try {
+            Tensor<float> c = a + b;
+            std::cout << "Test 33 FAILED: should have thrown" << std::endl;
+            return 1;
+        } catch (const std::invalid_argument& e) {
+            std::cout << "Test 33 PASSED: caught expected error: " << e.what() << std::endl;
+        }
+    }
+
+    // 34. 不兼容: {2, 3} + {2} → 应该抛异常（不是 {2,1}）
+    std::cout << "\n--- Day 12 Test: Incompatible {2,3} + {2} ---" << std::endl;
+    {
+        Tensor<float> a({2, 3});
+        Tensor<float> b({2});  // b 广播到 {1,2}，和 {2,3} 比较: dim0: 2!=1 OK, dim1: 3!=2 FAIL
+
+        try {
+            Tensor<float> c = a + b;
+            std::cout << "Test 34 FAILED: should have thrown" << std::endl;
+            return 1;
+        } catch (const std::invalid_argument& e) {
+            std::cout << "Test 34 PASSED: caught expected error: " << e.what() << std::endl;
+        }
+    }
+
+    // 35. 广播路径的 operator* 验证
+    std::cout << "\n--- Day 12 Test: Broadcast operator* ---" << std::endl;
+    {
+        Tensor<float> a({1, 3});
+        a.data()[0] = 2.0f; a.data()[1] = 3.0f; a.data()[2] = 4.0f;
+
+        Tensor<float> b({4, 3});
+        for (int i = 0; i < 12; i++) b.data()[i] = 1.0f;
+
+        Tensor<float> c = a * b;
+        c.print_info("C = A * B (broadcast mul)");
+        assert(c.shape()[0] == 4 && c.shape()[1] == 3);
+        // 每一行都应该是 [2, 3, 4]
+        for (int row = 0; row < 4; row++) {
+            int offset = row * c.stride()[0];
+            assert(std::abs(c.data()[offset] - 2.0f) < 1e-5f);
+            assert(std::abs(c.data()[offset + 1] - 3.0f) < 1e-5f);
+            assert(std::abs(c.data()[offset + 2] - 4.0f) < 1e-5f);
+        }
+        std::cout << "Test 35 PASSED" << std::endl;
+    }
+
+    // 36. 验证原有相同 shape 的快速路径仍然正确
+    std::cout << "\n--- Day 12 Test: Same-shape fast path still works ---" << std::endl;
+    {
+        Tensor<float> a({2, 3});
+        Tensor<float> b({2, 3});
+        for (int i = 0; i < 6; i++) {
+            a.data()[i] = static_cast<float>(i);
+            b.data()[i] = 1.0f;
+        }
+        Tensor<float> c = a + b;
+        for (int i = 0; i < 6; i++) {
+            assert(std::abs(c.data()[i] - (static_cast<float>(i) + 1.0f)) < 1e-5f);
+        }
+        std::cout << "Test 36 PASSED" << std::endl;
+    }
+
+    std::cout << "\n=== All Day 12 Tests Passed ===" << std::endl;
+
     return 0;
 }
