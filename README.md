@@ -49,7 +49,7 @@ make
 - [x] v0.3 Day 11 — Blocked Matmul (loop tiling, cache-friendly GEMM)
 - [x] v0.3 Day 12 — Broadcasting (ND shape expansion)
 - [x] v0.3 Day 13 — Reshape & Transpose
-- [ ] v0.3 Day 14 — Computation graph tests (build + execute engine)
+- [x] v0.3 Day 14 — Computation graph (build + execute engine, all 5 ops)
 
 ## Architecture
 

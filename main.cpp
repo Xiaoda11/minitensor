@@ -1,4 +1,5 @@
 #include "tensor.h"
+#include "compute_graph.h"
 #include <cassert>
 
 int main() {
@@ -937,6 +938,119 @@ int main() {
     }
 
     std::cout << "\n=== All Day 13 Tests Passed ===" << std::endl;
+
+    // ==========================================
+    // Day 14 Tests: Computation Graph (Full Pipeline)
+    // ==========================================
+
+    std::cout << "\n=== Day 14: Computation Graph — All Operators ===" << std::endl;
+
+    // 46. 构建完整计算图，使用全部 5 种算子
+    //     流程: Input → Matmul → Add(broadcast) → Mul(broadcast) → Transpose → Softmax
+    std::cout << "\n--- Day 14 Test: Full Computation Graph Pipeline ---" << std::endl;
+    {
+        Graph g;
+
+        // --- 创建叶子节点 ---
+        auto x = g.tensor({2, 3});      // 输入 X: 2x3
+        auto W = g.tensor({3, 2});      // 权重 W: 3x2
+        auto b = g.tensor({2});         // bias: 2
+        auto scale = g.tensor({1});     // 标量: 1
+
+        // --- 填充数据 ---
+        // X = [[1, 2, 3],
+        //      [4, 5, 6]]
+        g.set_data(x, {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f});
+
+        // W = [[0.1, 0.2],
+        //      [0.3, 0.4],
+        //      [0.5, 0.6]]
+        g.set_data(W, {0.1f, 0.2f, 0.3f, 0.4f, 0.5f, 0.6f});
+
+        // bias = [0.1, -0.1]
+        g.set_data(b, {0.1f, -0.1f});
+
+        // scale = [2.0]
+        g.set_data(scale, {2.0f});
+
+        std::cout << "Input data set. Building graph...\n" << std::endl;
+
+        // --- 建图 (Build Phase) ---
+        // Step 1: matmul — X(2x3) @ W(3x2) = hidden(2x2)
+        auto hidden = g.matmul(x, W);
+
+        // Step 2: add — hidden(2x2) + bias(2) [broadcast 1→2] = biased(2x2)
+        auto biased = g.add(hidden, b);
+
+        // Step 3: mul — biased(2x2) * scale(1) [broadcast scalar] = scaled(2x2)
+        auto scaled = g.mul(biased, scale);
+
+        // Step 4: transpose — scaled(2x2) → scaled_t(2x2)
+        auto scaled_t = g.transpose(scaled, 0, 1);
+
+        // Step 5: softmax — scaled_t(2x2) → output(2x2)
+        auto output = g.softmax(scaled_t);
+
+        // --- 打印图结构 ---
+        std::cout << "Graph structure (" << g.num_nodes() << " nodes):" << std::endl;
+        g.print_graph();
+
+        // --- 执行 (Execute Phase) ---
+        std::cout << "\nExecuting graph..." << std::endl;
+        g.compute();
+
+        // --- 验证结果 ---
+        // hidden = X @ W:
+        //   row0: [2.2, 2.8], row1: [4.9, 6.4]
+        hidden.print_info("hidden (matmul)");
+        assert(std::abs(hidden.data()[0] - 2.2f) < 1e-5f);
+        assert(std::abs(hidden.data()[1] - 2.8f) < 1e-5f);
+        assert(std::abs(hidden.data()[2] - 4.9f) < 1e-5f);
+        assert(std::abs(hidden.data()[3] - 6.4f) < 1e-5f);
+        std::cout << "  matmul ✓" << std::endl;
+
+        // biased = hidden + bias [broadcast]:
+        //   row0: [2.3, 2.7], row1: [5.0, 6.3]
+        biased.print_info("biased (add+bc)");
+        assert(std::abs(biased.data()[0] - 2.3f) < 1e-5f);
+        assert(std::abs(biased.data()[1] - 2.7f) < 1e-5f);
+        assert(std::abs(biased.data()[2] - 5.0f) < 1e-5f);
+        assert(std::abs(biased.data()[3] - 6.3f) < 1e-5f);
+        std::cout << "  add ✓" << std::endl;
+
+        // scaled = biased * 2.0 [scalar broadcast]:
+        //   [[4.6, 5.4], [10.0, 12.6]]
+        scaled.print_info("scaled (mul+bc)");
+        assert(std::abs(scaled.data()[0] - 4.6f) < 1e-5f);
+        assert(std::abs(scaled.data()[1] - 5.4f) < 1e-5f);
+        assert(std::abs(scaled.data()[2] - 10.0f) < 1e-5f);
+        assert(std::abs(scaled.data()[3] - 12.6f) < 1e-5f);
+        std::cout << "  mul ✓" << std::endl;
+
+        // scaled_t = transpose(scaled):
+        //   [[4.6, 10.0], [5.4, 12.6]]
+        scaled_t.print_info("scaled_t (transpose)");
+        assert(std::abs(scaled_t.data()[0] - 4.6f) < 1e-5f);
+        assert(std::abs(scaled_t.data()[1] - 10.0f) < 1e-5f);
+        assert(std::abs(scaled_t.data()[2] - 5.4f) < 1e-5f);
+        assert(std::abs(scaled_t.data()[3] - 12.6f) < 1e-5f);
+        std::cout << "  transpose ✓" << std::endl;
+
+        // output = softmax(scaled_t) [按行]:
+        //   row0: softmax([4.6, 10.0]) ≈ [0.0045, 0.9955]
+        //   row1: softmax([5.4, 12.6]) ≈ [0.000746, 0.999254]
+        output.print_info("output (softmax)");
+        float row0_sum = output.data()[0] + output.data()[1];
+        float row1_sum = output.data()[2] + output.data()[3];
+        assert(std::abs(row0_sum - 1.0f) < 1e-5f);
+        assert(std::abs(row1_sum - 1.0f) < 1e-5f);
+        std::cout << "  softmax ✓ (row sums = 1.0)" << std::endl;
+
+        std::cout << "\nTest 46 PASSED (all 5 ops: matmul + add + mul + transpose + softmax)" << std::endl;
+    }
+
+    std::cout << "\n=== All Day 14 Tests Passed ===" << std::endl;
+    std::cout << "\n=== MiniTensor v0.3 Complete! ===" << std::endl;
 
     return 0;
 }
