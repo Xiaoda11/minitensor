@@ -24,7 +24,7 @@ make
 | **v0.3** | 11-15 | Computation graph, Operator dispatch, Batching | Planned |
 | **v0.4** | 16+ | CUDA backend, Quantization (FP16/INT8/INT4) | Planned |
 
-## Current Status: v0.2 — Day 10
+## Current Status: v0.3 — Day 13
 
 **Implemented:**
 
@@ -44,9 +44,12 @@ make
 - [x] Layer normalization
 - [x] Simple inference demo (classifier + mini attention block)
 
-**In Progress:**
+### In Progress / Done
+
 - [x] v0.3 Day 11 — Blocked Matmul (loop tiling, cache-friendly GEMM)
-- [ ] v0.3 Day 12-15 — Broadcasting, fused ops, computation graph, operator dispatch
+- [x] v0.3 Day 12 — Broadcasting (ND shape expansion)
+- [x] v0.3 Day 13 — Reshape & Transpose
+- [ ] v0.3 Day 14 — Computation graph tests (build + execute engine)
 
 ## Architecture
 
@@ -54,6 +57,7 @@ make
 minitensor/
 ├── tensor.h          # Tensor<T> class — header-only, generic dtype
 ├── memory_pool.h     # MemoryPool — pre-allocated buffer management
+├── compute_graph.h   # Computation Graph (DAG) — build + execute engine
 ├── main.cpp          # Test driver & inference demos
 └── CMakeLists.txt
 ```
