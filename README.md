@@ -1,67 +1,51 @@
 # MiniTensor
 
-A minimal C++ tensor library built from scratch — a learning project for LLM inference/deployment engineering.
+从零手写的 C++ 张量计算库，覆盖 CPU 和 CUDA 双后端。学习项目，目标 LLM Inference/Deployment 岗位。
 
-## Goal
-
-Understand the foundations of inference engines (vLLM, llama.cpp) by building a miniature tensor computation library piece by piece. Each development phase maps directly to real components in production inference systems.
-
-## Build
-
-```bash
-mkdir -p build && cd build
-cmake ..
-make
-./minitensor
-```
-
-## Learning Roadmap
-
-| Phase | Days | Topics | Milestone |
-|---|---|---|---|
-| **v0.1** | 1-5 | Memory management, Rule of Five, Move semantics, Templates, RAII | ✅ Core Tensor class with safe memory handling |
-| **v0.2** | 6-10 | Multi-dimensional tensors (shape, stride), Memory pool, Operators (matmul, softmax, layernorm) | ✅ Simple inference demo |
-| **v0.3** | 11-15 | Computation graph, Operator dispatch, Batching | Planned |
-| **v0.4** | 16+ | CUDA backend, Quantization (FP16/INT8/INT4) | Planned |
-
-## Current Status: v0.3 — Day 13
-
-**Implemented:**
-
-### v0.1 — Core Tensor (Day 1-5)
-- [x] Constructor / Destructor
-- [x] Rule of Five (copy ctor, copy assign, move ctor, move assign, destructor)
-- [x] Templates — generic `Tensor<T>` with header-only implementation
-- [x] RAII with `std::unique_ptr<T[]>`
-- [x] Element-wise operators (`operator+`, `operator+=`, `operator-`, `operator*`)
-- [x] Const correctness
-
-### v0.2 — Multi-dimensional & Operators (Day 6-10)
-- [x] N-dimensional tensor with shape & stride
-- [x] Memory pool — pre-allocated buffer reuse
-- [x] Matrix multiplication (matmul)
-- [x] Softmax activation
-- [x] Layer normalization
-- [x] Simple inference demo (classifier + mini attention block)
-
-### In Progress / Done
-
-- [x] v0.3 Day 11 — Blocked Matmul (loop tiling, cache-friendly GEMM)
-- [x] v0.3 Day 12 — Broadcasting (ND shape expansion)
-- [x] v0.3 Day 13 — Reshape & Transpose
-- [x] v0.3 Day 14 — Computation graph (build + execute engine, all 5 ops)
-
-## Architecture
+## 目录结构
 
 ```
 minitensor/
-├── tensor.h          # Tensor<T> class — header-only, generic dtype
-├── memory_pool.h     # MemoryPool — pre-allocated buffer management
-├── compute_graph.h   # Computation Graph (DAG) — build + execute engine
-├── main.cpp          # Test driver & inference demos
-└── CMakeLists.txt
+├── cpu/                    # CPU 后端 (header-only)
+│   ├── tensor.h            # N 维张量模板 (Rule of 5, broadcasting, stride)
+│   ├── compute_graph.h     # 计算图引擎 (DAG 构建 + 拓扑排序 + 前向执行)
+│   ├── memory_pool.h       # 内存池
+│   ├── main.cpp            # 47 个测试 (Day 1–15)
+│   └── CMakeLists.txt
+├── cuda/                   # CUDA 后端 (Phase 1+)
+│   ├── vector_add.cu       # Week 1: Grid/Block/Thread 入门
+│   ├── CMakeLists.txt
+│   └── README.md           # 4 周学习路线图
+└── README.md               # 本文件
 ```
 
-## Author
+## 快速开始
 
-[Xiaoda](https://github.com/Xiaoda11) — Automation undergrad, targeting LLM Inference/Deployment
+### CPU 版本
+```bash
+cd cpu
+g++ -std=c++17 -O2 main.cpp -o main && ./main
+```
+
+### CUDA 版本 (需要 NVIDIA GPU + CUDA Toolkit)
+```bash
+cd cuda
+nvcc -O2 vector_add.cu -o vector_add && ./vector_add
+```
+
+## 版本历史
+
+| 版本 | 内容 | 状态 |
+|------|------|------|
+| v0.1 | Tensor 基础 (Rule of 5, 模板) | ✓ |
+| v0.2 | Shape/Stride, 基础算子, 推理 Demo | ✓ |
+| v0.3 | 计算图引擎 + 2 层 MLP 推理 | ✓ |
+| v0.4 | CUDA Kernel 重写 | 进行中 |
+| v0.5 | KV Cache + PagedAttention (规划中) | — |
+
+## 技术栈
+
+- C++17, CUDA C++
+- 计算图: 拓扑排序 (Kahn)、DAG 前向执行
+- 算子: matmul, softmax, layernorm, ReLU, broadcast add/mul, transpose
+- CUDA: Grid/Block/Thread, Shared Memory, Warp Reduce
