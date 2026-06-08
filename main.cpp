@@ -1052,5 +1052,134 @@ int main() {
     std::cout << "\n=== All Day 14 Tests Passed ===" << std::endl;
     std::cout << "\n=== MiniTensor v0.3 Complete! ===" << std::endl;
 
+    // ==========================================
+    // Day 15 Tests: 2-Layer MLP with Computation Graph
+    // ==========================================
+
+    std::cout << "\n=== Day 15: 2-Layer MLP Inference via Computation Graph ===" << std::endl;
+    std::cout << "  Architecture: Linear(4→8) → ReLU → Linear(8→3) → Softmax\n" << std::endl;
+
+    // 47. 使用计算图构建完整 2 层 MLP + 对比手动计算结果
+    {
+        Graph g;
+
+        // --- 参数节点 ---
+        auto input = g.tensor({1, 4});   // batch=1, features=4
+        auto W1    = g.tensor({4, 8});   // 第一层权重
+        auto b1    = g.tensor({8});      // 第一层 bias
+        auto W2    = g.tensor({8, 3});   // 第二层权重
+        auto b2    = g.tensor({3});      // 第二层 bias
+
+        // --- 填充数据 ---
+        // input = [0.5, -1.0, 2.0, 0.3]
+        g.set_data(input, {0.5f, -1.0f, 2.0f, 0.3f});
+
+        // W1: 4x8, 简单取值 i*0.1
+        {
+            std::vector<float> w1(32);
+            for (int i = 0; i < 32; ++i) w1[i] = (i + 1) * 0.1f;
+            g.set_data(W1, w1);
+        }
+        // b1: 全 0.1
+        g.set_data(b1, {0.1f, 0.1f, 0.1f, 0.1f, 0.1f, 0.1f, 0.1f, 0.1f});
+
+        // W2: 8x3, 简单取值 j*0.2
+        {
+            std::vector<float> w2(24);
+            for (int i = 0; i < 24; ++i) w2[i] = (i + 1) * 0.2f;
+            g.set_data(W2, w2);
+        }
+        // b2: [0.2, -0.1, 0.0]
+        g.set_data(b2, {0.2f, -0.1f, 0.0f});
+
+        // --- 建图 ---
+        // Layer 1: hidden = relu(input @ W1 + b1)
+        auto h1 = g.matmul(input, W1);          // {1,4} @ {4,8} = {1,8}
+        auto h1_biased = g.add(h1, b1);         // {1,8} + {8} = {1,8}  (broadcast)
+        auto h1_relu = g.relu(h1_biased);       // {1,8}
+
+        // Layer 2: logits = h1_relu @ W2 + b2
+        auto logits = g.matmul(h1_relu, W2);    // {1,8} @ {8,3} = {1,3}
+        auto logits_biased = g.add(logits, b2); // {1,3} + {3} = {1,3}
+
+        // Output: probs = softmax(logits_biased)
+        auto probs = g.softmax(logits_biased);
+
+        // --- 打印图 ---
+        g.print_graph();
+
+        // --- 执行 ---
+        std::cout << "\nExecuting graph...\n" << std::endl;
+        g.compute();
+
+        // --- 验证：用 Tensor<float> API 手动算一遍 ---
+        // input
+        Tensor<float> t_input({1, 4});
+        t_input.data()[0] = 0.5f; t_input.data()[1] = -1.0f;
+        t_input.data()[2] = 2.0f; t_input.data()[3] = 0.3f;
+
+        // W1
+        Tensor<float> t_W1({4, 8});
+        for (int i = 0; i < 32; ++i) t_W1.data()[i] = (i + 1) * 0.1f;
+        // b1
+        Tensor<float> t_b1({8});
+        for (int i = 0; i < 8; ++i) t_b1.data()[i] = 0.1f;
+        // W2
+        Tensor<float> t_W2({8, 3});
+        for (int i = 0; i < 24; ++i) t_W2.data()[i] = (i + 1) * 0.2f;
+        // b2
+        Tensor<float> t_b2({3});
+        t_b2.data()[0] = 0.2f; t_b2.data()[1] = -0.1f; t_b2.data()[2] = 0.0f;
+
+        // Forward: Linear1
+        auto t_h1 = matmul(t_input, t_W1);                   // {1,4} @ {4,8} = {1,8}
+        auto t_h1b = t_h1 + t_b1;                            // broadcast add
+
+        // ReLU (手动)
+        Tensor<float> t_relu({1, 8});
+        for (int i = 0; i < 8; ++i)
+            t_relu.data()[i] = (t_h1b.data()[i] > 0) ? t_h1b.data()[i] : 0.0f;
+
+        // Linear2
+        auto t_logits = matmul(t_relu, t_W2);                // {1,8} @ {8,3} = {1,3}
+        auto t_logitsb = t_logits + t_b2;                    // broadcast add
+
+        // Softmax
+        auto t_probs = softmax(t_logitsb);
+
+        // --- 比较图输出 vs 手动计算 ---
+        std::cout << "--- Layer 1 output (after ReLU) ---" << std::endl;
+        h1_relu.print_info("Graph h1_relu");
+        t_relu.print_info("Manual  ");
+        bool h1_ok = true;
+        for (int i = 0; i < 8; ++i)
+            if (std::abs(h1_relu.data()[i] - t_relu.data()[i]) > 1e-5f) h1_ok = false;
+        std::cout << (h1_ok ? "  ✓ Match" : "  ✗ MISMATCH") << std::endl;
+
+        std::cout << "\n--- Final probabilities (after Softmax) ---" << std::endl;
+        probs.print_info("Graph probs");
+        t_probs.print_info("Manual  ");
+        bool prob_ok = true;
+        for (int i = 0; i < 3; ++i)
+            if (std::abs(probs.data()[i] - t_probs.data()[i]) > 1e-5f) prob_ok = false;
+        std::cout << (prob_ok ? "  ✓ Match" : "  ✗ MISMATCH") << std::endl;
+
+        // 验证 softmax sum = 1
+        float sum = probs.data()[0] + probs.data()[1] + probs.data()[2];
+        assert(std::abs(sum - 1.0f) < 1e-5f);
+        assert(h1_ok && prob_ok);
+
+        // 找 argmax
+        int predicted = 0;
+        if (probs.data()[1] > probs.data()[predicted]) predicted = 1;
+        if (probs.data()[2] > probs.data()[predicted]) predicted = 2;
+        std::cout << "Predicted class: " << predicted << std::endl;
+
+        std::cout << "\nTest 47 PASSED (2-layer MLP via computation graph)" << std::endl;
+    }
+
+    std::cout << "\n=== All Day 15 Tests Passed ===" << std::endl;
+    std::cout << "\n=== MiniTensor v0.3 Complete! ===" << std::endl;
+
     return 0;
 }

@@ -4,6 +4,7 @@
 #include "tensor.h"
 #include <stdexcept>
 #include <string>
+#include <unordered_map>
 
 // =============================================================================
 // v0.3 — Computation Graph (Day 14)
@@ -19,6 +20,7 @@ enum class GraphOp {
     Mul,        // 逐元素乘法
     Transpose,  // 转置
     Softmax,    // softmax
+    ReLU,       // 逐元素 ReLU
 };
 
 inline const char* graph_op_name(GraphOp op) {
@@ -29,6 +31,7 @@ inline const char* graph_op_name(GraphOp op) {
         case GraphOp::Mul:      return "Mul";
         case GraphOp::Transpose: return "Transpose";
         case GraphOp::Softmax:  return "Softmax";
+        case GraphOp::ReLU:     return "ReLU";
     }
     return "Unknown";
 }
@@ -158,6 +161,13 @@ public:
         return TensorRef(this, id);
     }
 
+    TensorRef relu(TensorRef a) {
+        if (a.graph_ != this)
+            throw std::invalid_argument("relu: TensorRef 不属于同一个 Graph");
+        int id = add_node(GraphOp::ReLU, {a.node_id_}, node(a).out_shape);
+        return TensorRef(this, id);
+    }
+
     // ========== 执行引擎 ==========
 
     /// @brief 按拓扑序执行整个图
@@ -209,12 +219,17 @@ public:
 
     int num_nodes() const { return static_cast<int>(nodes_.size()); }
 
-    /// @brief 打印图结构 (调试用)
+/// @brief 打印图结构 (调试用) — 同时显示拓扑执行顺序
     void print_graph() const {
+        auto order = topo_sort();
+        std::unordered_map<int, int> topo_idx;
+        for (size_t i = 0; i < order.size(); ++i) topo_idx[order[i]] = static_cast<int>(i);
+
         std::cout << "=== Computation Graph (" << nodes_.size() << " nodes) ===" << std::endl;
         for (auto& n : nodes_) {
             std::cout << "  [" << n.id << "] " << graph_op_name(n.op)
                       << " -> shape " << shape_str(n.out_shape)
+                      << " | topo=#" << topo_idx[n.id]
                       << " | deps: [";
             for (size_t i = 0; i < actual_deps(n).size(); ++i) {
                 std::cout << actual_deps(n)[i] << (i + 1 < actual_deps(n).size() ? ", " : "");
@@ -425,6 +440,14 @@ private:
                 for (int c = 0; c < cols; ++c)
                     n.output[offset + c] *= inv;
             }
+            break;
+        }
+        case GraphOp::ReLU: {
+            int total = 1;
+            for (int d : n.out_shape) total *= d;
+            n.output.resize(total);
+            for (int i = 0; i < total; ++i)
+                n.output[i] = (in0[i] > 0) ? in0[i] : 0.0f;
             break;
         }
         default:
