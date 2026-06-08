@@ -248,18 +248,78 @@ private:
         return n.input_ids;
     }
 
+    // ========== 执行辅助：广播逐元素运算 ==========
+
+    /// @brief 执行广播加法或乘法，直接在 raw buffer 上运算（零拷贝）
+    /// @tparam MulOp  true=乘法, false=加法
+    template <bool MulOp>
+    void broadcast_exec(const GraphNode& in0, const GraphNode& in1, GraphNode& out) {
+        const float* a = in0.output.data();
+        const float* b = in1.output.data();
+        int ndim_out = static_cast<int>(out.out_shape.size());
+        int ndim_a  = static_cast<int>(in0.out_shape.size());
+        int ndim_b  = static_cast<int>(in1.out_shape.size());
+
+        // 预计算 a/b 每个输出维度的 stride（广播维度 stride=0 代表复用同一元素）
+        std::vector<int> stride_a(ndim_out, 0), stride_b(ndim_out, 0);
+        int stride = 1;
+        for (int d = ndim_a - 1; d >= 0; --d) {
+            int od = d + (ndim_out - ndim_a);
+            stride_a[od] = (in0.out_shape[d] != 1) ? stride : 0;
+            stride *= in0.out_shape[d];
+        }
+        stride = 1;
+        for (int d = ndim_b - 1; d >= 0; --d) {
+            int od = d + (ndim_out - ndim_b);
+            stride_b[od] = (in1.out_shape[d] != 1) ? stride : 0;
+            stride *= in1.out_shape[d];
+        }
+
+        // 预计算输出各维 stride（用于分解线性索引）
+        std::vector<int> out_stride(ndim_out);
+        stride = 1;
+        for (int d = ndim_out - 1; d >= 0; --d) {
+            out_stride[d] = stride;
+            stride *= out.out_shape[d];
+        }
+
+        int total = 1;
+        for (int d : out.out_shape) total *= d;
+        out.output.resize(total);
+
+        for (int i = 0; i < total; ++i) {
+            int remainder = i;
+            int off_a = 0, off_b = 0;
+            for (int d = 0; d < ndim_out; ++d) {
+                int coord = remainder / out_stride[d];
+                remainder %= out_stride[d];
+                off_a += coord * stride_a[d];
+                off_b += coord * stride_b[d];
+            }
+            if constexpr (MulOp)
+                out.output[i] = a[off_a] * b[off_b];
+            else
+                out.output[i] = a[off_a] + b[off_b];
+        }
+    }
+
+    /// @brief 快速路径：相同 shape 无广播的逐元素运算
+    template <bool MulOp>
+    void no_broadcast_exec(const float* a, const float* b, float* out, int n) {
+        if constexpr (MulOp)
+            for (int i = 0; i < n; ++i) out[i] = a[i] * b[i];
+        else
+            for (int i = 0; i < n; ++i) out[i] = a[i] + b[i];
+    }
+
     /// @brief 执行单个节点的计算
     void execute_node(GraphNode& n) {
-        // 收集输入数据
         auto deps = actual_deps(n);
         if (deps.empty()) return;
 
-        // 获取第一个输入的数据
         auto& input0 = nodes_[deps[0]];
         if (!input0.computed) throw std::runtime_error("依赖节点尚未计算");
-
         const float* in0 = input0.output.data();
-        int numel0 = static_cast<int>(input0.output.size());
 
         switch (n.op) {
         case GraphOp::Matmul: {
@@ -268,14 +328,12 @@ private:
             int M = n.out_shape[0];
             int K = input0.out_shape[1];
             int N = n.out_shape[1];
-            int n_out = M * N;
-            n.output.resize(n_out);
+            n.output.resize(M * N);
             for (int i = 0; i < M; ++i) {
                 for (int j = 0; j < N; ++j) {
                     float sum = 0;
-                    for (int k = 0; k < K; ++k) {
+                    for (int k = 0; k < K; ++k)
                         sum += in0[i * K + k] * in1[k * N + j];
-                    }
                     n.output[i * N + j] = sum;
                 }
             }
@@ -283,72 +341,90 @@ private:
         }
         case GraphOp::Add: {
             auto& input1 = nodes_[deps[1]];
-            const float* in1 = input1.output.data();
-            int out_n = 1;
-            for (int d : n.out_shape) out_n *= d;
-            n.output.resize(out_n);
-            // 复用 Tensor 的广播加法逻辑
-            Tensor<float> ta(input0.out_shape);
-            std::memcpy(ta.data(), in0, numel0 * sizeof(float));
-            Tensor<float> tb(input1.out_shape);
-            std::memcpy(tb.data(), in1, input1.output.size() * sizeof(float));
-            auto tc = ta + tb;
-            n.output.resize(tc.size());
-            std::memcpy(n.output.data(), tc.data(), tc.size() * sizeof(float));
+            if (input0.out_shape == input1.out_shape) {
+                // 快速路径：无广播
+                int n_el = static_cast<int>(input0.output.size());
+                n.output.resize(n_el);
+                no_broadcast_exec<false>(in0, input1.output.data(), n.output.data(), n_el);
+            } else {
+                broadcast_exec<false>(input0, input1, n);
+            }
             break;
         }
         case GraphOp::Mul: {
             auto& input1 = nodes_[deps[1]];
-            const float* in1 = input1.output.data();
-            int out_n = 1;
-            for (int d : n.out_shape) out_n *= d;
-            n.output.resize(out_n);
-            Tensor<float> ta(input0.out_shape);
-            std::memcpy(ta.data(), in0, numel0 * sizeof(float));
-            Tensor<float> tb(input1.out_shape);
-            std::memcpy(tb.data(), in1, input1.output.size() * sizeof(float));
-            auto tc = ta * tb;
-            n.output.resize(tc.size());
-            std::memcpy(n.output.data(), tc.data(), tc.size() * sizeof(float));
+            if (input0.out_shape == input1.out_shape) {
+                int n_el = static_cast<int>(input0.output.size());
+                n.output.resize(n_el);
+                no_broadcast_exec<true>(in0, input1.output.data(), n.output.data(), n_el);
+            } else {
+                broadcast_exec<true>(input0, input1, n);
+            }
             break;
         }
         case GraphOp::Transpose: {
             int ndim = static_cast<int>(input0.out_shape.size());
             int dim0 = n.input_ids[1];
             int dim1 = n.input_ids[2];
-            int out_n = 1;
-            for (int d : n.out_shape) out_n *= d;
-            n.output.resize(out_n);
-            // ND 索引映射转置
-            std::vector<int> coords(ndim);
-            int remainder;
-            for (int i = 0; i < out_n; ++i) {
-                remainder = i;
-                for (int d = ndim - 1; d >= 0; --d) {
-                    coords[d] = remainder % n.out_shape[d];
-                    remainder /= n.out_shape[d];
-                }
-                std::swap(coords[dim0], coords[dim1]);
+            int total = 1;
+            for (int d : n.out_shape) total *= d;
+            n.output.resize(total);
+
+            // 预计算源张量 stride（消除内层 O(ndim²) 重复乘法）
+            std::vector<int> src_stride(ndim);
+            int stride = 1;
+            for (int d = ndim - 1; d >= 0; --d) {
+                src_stride[d] = stride;
+                stride *= input0.out_shape[d];
+            }
+
+            // 预计算输出 stride
+            std::vector<int> out_stride(ndim);
+            stride = 1;
+            for (int d = ndim - 1; d >= 0; --d) {
+                out_stride[d] = stride;
+                stride *= n.out_shape[d];
+            }
+
+            for (int i = 0; i < total; ++i) {
+                int remainder = i;
                 int src_idx = 0;
                 for (int d = 0; d < ndim; ++d) {
-                    // 计算源张量的线性索引
-                    int src_stride = 1;
-                    for (int dd = ndim - 1; dd > d; --dd) src_stride *= input0.out_shape[dd];
-                    src_idx += coords[d] * src_stride;
+                    int coord = remainder / out_stride[d];
+                    remainder %= out_stride[d];
+                    // 对换 dim0 和 dim1 对应的坐标
+                    int orig_d = (d == dim0) ? dim1 : (d == dim1) ? dim0 : d;
+                    src_idx += coord * src_stride[orig_d];
                 }
                 n.output[i] = in0[src_idx];
             }
             break;
         }
         case GraphOp::Softmax: {
-            int out_n = 1;
-            for (int d : n.out_shape) out_n *= d;
-            n.output.resize(out_n);
-            Tensor<float> ta(input0.out_shape);
-            std::memcpy(ta.data(), in0, numel0 * sizeof(float));
-            auto tb = ::softmax(ta);
-            n.output.resize(tb.size());
-            std::memcpy(n.output.data(), tb.data(), tb.size() * sizeof(float));
+            int cols = n.out_shape.back();       // 最后一维 = 特征维度
+            int rows = 1;
+            for (size_t d = 0; d + 1 < n.out_shape.size(); ++d) rows *= n.out_shape[d];
+            int total = rows * cols;
+            n.output.resize(total);
+
+            for (int r = 0; r < rows; ++r) {
+                int offset = r * cols;
+                // 1) 找最大值（防 overflow）
+                float max_val = in0[offset];
+                for (int c = 1; c < cols; ++c)
+                    if (in0[offset + c] > max_val) max_val = in0[offset + c];
+                // 2) exp 并求和
+                float sum_exp = 0;
+                for (int c = 0; c < cols; ++c) {
+                    float e = std::exp(in0[offset + c] - max_val);
+                    n.output[offset + c] = e;
+                    sum_exp += e;
+                }
+                // 3) 归一化
+                float inv = 1.0f / sum_exp;
+                for (int c = 0; c < cols; ++c)
+                    n.output[offset + c] *= inv;
+            }
             break;
         }
         default:
