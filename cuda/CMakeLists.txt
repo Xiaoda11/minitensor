@@ -28,7 +28,8 @@ endif()
 set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} --use_fast_math")
 set(CMAKE_CUDA_FLAGS_RELEASE "-O3")
 
-# ---- Week 1: Vector Addition ----
+# ---- Week 1: Hello + Vector Addition ----
+add_executable(hello hello.cu)
 add_executable(vector_add vector_add.cu)
 target_compile_options(vector_add PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:-lineinfo>)
 
