@@ -222,8 +222,17 @@ __global__ void matmul_tiled_kernel(const float *a, const float *b, float *c,
         //
         //   注意访问模式：
         //     As[ty][k]  — ty 固定，k 递增 → 同一行连续列 → 无 bank conflict ✓
-        //     Bs[k][tx]  — k 递增，tx 固定 → 同一列不同行 → 可能 bank conflict!
-        //     （简单版不做优化，进阶版可以加 padding 解决）
+        //     Bs[k][tx]  — k 递增，tx 固定 → 同一列不同行
+        //
+        //   Bank conflict 分析（32 banks, 4-byte words, Bs[16][16] 行主序）：
+        //     给定 k，warp 内 32 个线程访问 Bs[k][0..15]（前 16 线程）
+        //     + Bs[k][0..15]（后 16 线程，完全相同的地址）。
+        //     相同地址 = broadcast，不冲突。
+        //     k=0: bank 0..15  |  k=1: bank 16..31  → 完美均匀分布 ✓
+        //
+        //   16×16 恰好是 32 bank 的一半，warp 覆盖 2 行 × 16 列，
+        //   每行 16 个元素刚好占满半个 bank 集，自动无冲突。
+        //   （如果 TILE_SIZE=32，就会出现 2-way bank conflict）
         for (int k = 0; k < TILE_SIZE; ++k) {
             sum += As[threadIdx.y][k] * Bs[k][threadIdx.x];
         }
@@ -235,6 +244,82 @@ __global__ void matmul_tiled_kernel(const float *a, const float *b, float *c,
     }
 
     // ---- 写回结果 ----
+    if (row < M && col < N) {
+        c[row * N + col] = sum;
+    }
+}
+
+// ============================================================================
+// 3b. GPU Tiled + 循环展开版本
+// ============================================================================
+
+/**
+ * @brief Tiled 矩阵乘法 — 循环展开优化版
+ *
+ * 和 matmul_tiled_kernel 结构完全一样，唯一区别：
+ * 内层的 16 次乘加循环被手动展开，消除循环开销。
+ *
+ * 为什么循环展开能加速：
+ *   1. 消除 k++ 比较和分支（每次迭代省 1-2 条指令）
+ *   2. 编译器更容易做指令重排和流水线优化
+ *   3. As[ty][k] 和 Bs[k][tx] 的地址对编译器完全透明 → 可能合并为 float4 向量加载
+ *
+ * 手动展开 vs #pragma unroll：
+ *   #pragma unroll 让编译器展开，但不保证——取决于启发式。
+ *   手动展开是强制的，不依赖编译器判断。
+ */
+__global__ void matmul_tiled_unroll_kernel(const float *a, const float *b, float *c,
+                                            int M, int K, int N) {
+    int row = blockIdx.y * blockDim.y + threadIdx.y;
+    int col = blockIdx.x * blockDim.x + threadIdx.x;
+
+    __shared__ float As[TILE_SIZE][TILE_SIZE];
+    __shared__ float Bs[TILE_SIZE][TILE_SIZE];
+
+    float sum = 0.0f;
+    // 小技巧：存到寄存器变量，减少重复索引计算
+    int ty = threadIdx.y;
+    int tx = threadIdx.x;
+
+    for (int phase = 0; phase < K; phase += TILE_SIZE) {
+        // ---- 协作加载（和原版一致） ----
+        if (row < M && (phase + tx) < K) {
+            As[ty][tx] = a[row * K + (phase + tx)];
+        } else {
+            As[ty][tx] = 0.0f;
+        }
+        if (col < N && (phase + ty) < K) {
+            Bs[ty][tx] = b[(phase + ty) * N + col];
+        } else {
+            Bs[ty][tx] = 0.0f;
+        }
+        __syncthreads();
+
+        // ---- 手动展开：16 次乘加，无循环 ----
+        // 编译器看到这 16 行连续的乘加，可以做：
+        //   - 寄存器重命名，消除假依赖
+        //   - 把连续的 As[ty][k] 合并为 float4 load (128-bit)
+        //   - 指令级并行：load As[ty][k+1] 的同时算 As[ty][k] * Bs[k][tx]
+        sum += As[ty][0]  * Bs[0][tx];
+        sum += As[ty][1]  * Bs[1][tx];
+        sum += As[ty][2]  * Bs[2][tx];
+        sum += As[ty][3]  * Bs[3][tx];
+        sum += As[ty][4]  * Bs[4][tx];
+        sum += As[ty][5]  * Bs[5][tx];
+        sum += As[ty][6]  * Bs[6][tx];
+        sum += As[ty][7]  * Bs[7][tx];
+        sum += As[ty][8]  * Bs[8][tx];
+        sum += As[ty][9]  * Bs[9][tx];
+        sum += As[ty][10] * Bs[10][tx];
+        sum += As[ty][11] * Bs[11][tx];
+        sum += As[ty][12] * Bs[12][tx];
+        sum += As[ty][13] * Bs[13][tx];
+        sum += As[ty][14] * Bs[14][tx];
+        sum += As[ty][15] * Bs[15][tx];
+
+        __syncthreads();
+    }
+
     if (row < M && col < N) {
         c[row * N + col] = sum;
     }
@@ -371,26 +456,46 @@ int main(int argc, char **argv) {
     printf("  Verification: %s\n\n", tiled_pass ? "PASSED ✓" : "FAILED ✗");
 
     // ================================================================
+    // Test 4: GPU tiled + unrolled kernel
+    // ================================================================
+    printf("Running GPU (tiled+unroll)... ");
+    fflush(stdout);
+    CUDA_CHECK(cudaEventRecord(start));
+    matmul_tiled_unroll_kernel<<<grid_dim, block_dim>>>(d_a, d_b, d_c, M, K, N);
+    CUDA_CHECK(cudaEventRecord(stop));
+    CUDA_CHECK(cudaEventSynchronize(stop));
+    float unroll_ms = 0;
+    CUDA_CHECK(cudaEventElapsedTime(&unroll_ms, start, stop));
+    printf("%.2f ms (%.2f GFLOP/s)\n", unroll_ms, 2.0 * M * K * N / (unroll_ms * 1e6));
+
+    CUDA_CHECK(cudaMemcpy(h_c_gpu, d_c, bytes_c, cudaMemcpyDeviceToHost));
+    bool unroll_pass = verify(h_c_cpu, h_c_gpu, M * N);
+    printf("  Verification: %s\n\n", unroll_pass ? "PASSED ✓" : "FAILED ✗");
+
+    // ================================================================
     // Summary
     // ================================================================
     printf("========== Results ==========\n");
-    printf("CPU (i-k-j):      %.2f ms  (%.2f GFLOP/s)\n",
+    printf("CPU (i-k-j):         %.2f ms  (%.2f GFLOP/s)\n",
            cpu_ms, 2.0 * M * K * N / (cpu_ms * 1e6));
-    printf("GPU (naive):      %.2f ms  (%.2f GFLOP/s)\n",
+    printf("GPU (naive):         %.2f ms  (%.2f GFLOP/s)\n",
            naive_ms, 2.0 * M * K * N / (naive_ms * 1e6));
-    printf("GPU (tiled):      %.2f ms  (%.2f GFLOP/s)\n",
+    printf("GPU (tiled):         %.2f ms  (%.2f GFLOP/s)\n",
            tiled_ms, 2.0 * M * K * N / (tiled_ms * 1e6));
+    printf("GPU (tiled+unroll):  %.2f ms  (%.2f GFLOP/s)\n",
+           unroll_ms, 2.0 * M * K * N / (unroll_ms * 1e6));
 
     printf("\n--- Speedups ---\n");
-    printf("Tiled vs CPU:     %.1fx\n", cpu_ms / tiled_ms);
-    printf("Tiled vs Naive:   %.1fx\n", naive_ms / tiled_ms);
+    printf("Tiled vs CPU:        %.1fx\n", cpu_ms / tiled_ms);
+    printf("Tiled vs Naive:      %.1fx\n", naive_ms / tiled_ms);
+    printf("Unroll vs Tiled:     %.1fx\n", tiled_ms / unroll_ms);
 
     printf("\n--- Efficiency ---\n");
     // RTX 3060 peak: ~12.7 TFLOPS (FP32)
     double peak_tflops = 12.7;
-    printf("Tiled GFLOPS:     %.2f\n", 2.0 * M * K * N / (tiled_ms * 1e6));
-    printf("Peak %%:          %.1f%% of %.1f TFLOPS\n",
-           100.0 * (2.0 * M * K * N / (tiled_ms * 1e6)) / (peak_tflops * 1000), peak_tflops);
+    printf("Best (unroll) GFLOPS: %.2f\n", 2.0 * M * K * N / (unroll_ms * 1e6));
+    printf("Peak %%:             %.1f%% of %.1f TFLOPS\n",
+           100.0 * (2.0 * M * K * N / (unroll_ms * 1e6)) / (peak_tflops * 1000), peak_tflops);
 
     // ---- Cleanup ----
     delete[] h_a; delete[] h_b; delete[] h_c_cpu; delete[] h_c_gpu;
