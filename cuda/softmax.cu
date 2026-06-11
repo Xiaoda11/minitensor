@@ -315,38 +315,73 @@ __global__ void softmax_warp_reduce_kernel(const float *input, float *output,
 // ============================================================================
 
 /**
- * @brief 单 Warp Softmax（当 blockDim.x ≤ 32 时不需要 shared memory）
+ * @brief Single Warp Softmax — 每行一个 warp，线程内循环处理多个元素
  *
- * 这是 warp reduce 的最简形式——block 只有一个 warp 时，
- * 不需要 shared memory 做跨 warp 归约，因为根本没有跨 warp。
- * reduce 结果在 warp lane 0 的寄存器里，用 __shfl_sync 广播即可。
+ * 与 multi-warp 版本的对比:
+ *   Multi-warp: grid(rows, cols) — 一个 block 256 线程处理一行
+ *               需要 shared memory 做跨 warp 归约
+ *   Single-warp: grid(rows, 32) — 一个 warp 32 线程处理一整行
+ *               每个线程通过局部循环处理 cols/32 个元素，
+ *               然后 warp reduce 归约这些局部结果。
+ *               不需要 shared memory！
  *
- * 为什么单独写一个？
- *   教学目的：让你看到"去掉 shared memory 中转"后代码多简洁。
- *   实际项目里，很多 reduce 操作只在 warp 级别就够了（比如
- *   attention 里每个 head 的 softmax 缩放因子）。
+ * 为什么 cols=256, warp=32 时每个线程处理 8 个元素:
+ *   线程 0: 处理 input[0..7]   → 找局部 max/sum
+ *   线程 1: 处理 input[8..15]  → 找局部 max/sum
+ *   ...
+ *   线程 31: 处理 input[248..255]
+ *   然后 warp_reduce_max/sum 把 32 个局部结果归约成全局结果。
+ *
+ * 这种模式在 attention 里非常常见——每个 head 的维度通常 ≤ 128，
+ * 用 1-4 个 warp 就能覆盖。
  */
 __global__ void softmax_single_warp_kernel(const float *input, float *output,
                                             int rows, int cols) {
-    int row = blockIdx.x;
-    int tid = threadIdx.x;
+    int row = blockIdx.x;        // 每行一个 block
+    int lane = threadIdx.x;      // 0..31
 
-    if (row >= rows || tid >= cols) return;
+    if (row >= rows) return;
 
     const float *row_in = input + row * cols;
-    float val = row_in[tid];
+    int elems_per_lane = cols / 32;   // 每个线程处理多少个元素
 
-    // 一个 warp 内搞定全部归约——零 shared memory
-    float max_val = warp_reduce_max(val);
-    // warp_reduce_max 后，只有 lane 0 有正确结果
-    // 用 __shfl_sync 广播给所有 lane
-    max_val = __shfl_sync(0xffffffff, max_val, 0);
+    // ============================================================
+    // Step 1: 每个线程先在自己的 cols/32 个元素里找局部 max
+    // ============================================================
+    float local_max = -INFINITY;
+    for (int i = 0; i < elems_per_lane; ++i) {
+        float v = row_in[lane * elems_per_lane + i];
+        if (v > local_max) local_max = v;
+    }
 
-    float exp_val = expf(val - max_val);
-    float sum_val = warp_reduce_sum(exp_val);
-    sum_val = __shfl_sync(0xffffffff, sum_val, 0);  // 广播
+    // ============================================================
+    // Step 2: Warp reduce 找全局 max
+    // ============================================================
+    float max_val = warp_reduce_max(local_max);
+    max_val = __shfl_sync(0xffffffff, max_val, 0);  // lane 0 广播给所有线程
 
-    output[row * cols + tid] = exp_val / sum_val;
+    // ============================================================
+    // Step 3: 每个线程算局部 sum(exp)
+    // ============================================================
+    float local_sum = 0.0f;
+    for (int i = 0; i < elems_per_lane; ++i) {
+        local_sum += expf(row_in[lane * elems_per_lane + i] - max_val);
+    }
+
+    // ============================================================
+    // Step 4: Warp reduce 求全局 sum
+    // ============================================================
+    float sum_val = warp_reduce_sum(local_sum);
+    sum_val = __shfl_sync(0xffffffff, sum_val, 0);
+
+    // ============================================================
+    // Step 5: 归一化写回
+    // ============================================================
+    for (int i = 0; i < elems_per_lane; ++i) {
+        int idx = lane * elems_per_lane + i;
+        float v = row_in[idx];
+        output[row * cols + idx] = expf(v - max_val) / sum_val;
+    }
 }
 
 // ============================================================================
@@ -502,8 +537,9 @@ int main(int argc, char **argv) {
     printf("Running GPU (single warp, block=32)... ");
     fflush(stdout);
     CUDA_CHECK(cudaEventRecord(start));
-    // 这里改用 32 threads/block，所以 grid 需要 rows*(cols/32) 个 block
-    softmax_single_warp_kernel<<<rows * (cols / 32), 32>>>(
+    // 每行一个 block，每个 block 32 threads（一个 warp）
+    // 每个线程通过局部循环处理 cols/32 个元素
+    softmax_single_warp_kernel<<<rows, 32>>>(
         d_input, d_output, rows, cols);
     CUDA_CHECK(cudaEventRecord(stop));
     CUDA_CHECK(cudaEventSynchronize(stop));
