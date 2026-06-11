@@ -35,11 +35,11 @@ target_compile_options(vector_add PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:-lineinfo>)
 
 # ---- Week 2: Simple Matmul ----
 add_executable(matmul_naive matmul_naive.cu)
-# add_executable(matmul_tiled matmul_tiled.cu)
+add_executable(matmul_tiled matmul_tiled.cu)
 
 # ---- Week 3: Softmax / LayerNorm ----
-# add_executable(softmax_cuda softmax.cu)
-# add_executable(layernorm_cuda layernorm.cu)
+add_executable(softmax_cuda softmax.cu)
+add_executable(layernorm_cuda layernorm.cu)
 
 # ---- Week 4: Performance analysis ----
 # add_executable(matmul_bench matmul_bench.cu)
