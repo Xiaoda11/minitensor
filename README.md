@@ -40,7 +40,7 @@ nvcc -O2 vector_add.cu -o vector_add && ./vector_add
 | v0.1 | Tensor 基础 (Rule of 5, 模板) | ✓ |
 | v0.2 | Shape/Stride, 基础算子, 推理 Demo | ✓ |
 | v0.3 | 计算图引擎 + 2 层 MLP 推理 | ✓ |
-| v0.4 | CUDA Kernel 重写 | 进行中 |
+| v0.4 | CUDA Kernel 重写 | ✓ |
 | v0.5 | KV Cache + PagedAttention (规划中) | — |
 
 ## 技术栈
