@@ -47,5 +47,5 @@ nvcc -O2 vector_add.cu -o vector_add && ./vector_add
 
 - C++17, CUDA C++
 - 计算图: 拓扑排序 (Kahn)、DAG 前向执行
-- 算子: matmul, softmax, layernorm, ReLU, broadcast add/mul, transpose
+- 算子: matmul, softmax, layernorm, attention, ReLU, broadcast add/mul, transpose
 - CUDA: Grid/Block/Thread, Shared Memory, Warp Reduce

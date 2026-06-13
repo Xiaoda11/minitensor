@@ -41,5 +41,5 @@ add_executable(matmul_tiled matmul_tiled.cu)
 add_executable(softmax_cuda softmax.cu)
 add_executable(layernorm_cuda layernorm.cu)
 
-# ---- Week 4: Performance analysis ----
-# add_executable(matmul_bench matmul_bench.cu)
+# ---- Week 4: Fused Attention ----
+add_executable(attention attention.cu)

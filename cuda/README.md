@@ -13,6 +13,7 @@ cuda/
 ├── matmul_tiled.cu       # Week 2: Tiling + Shared Memory
 ├── softmax.cu            # Week 3: Softmax (Warp Reduce)
 ├── layernorm.cu          # Week 3: LayerNorm CUDA
+├── attention.cu          # Week 4: Fused Attention (QK^T + Softmax + PV)
 └── tests/                # 单元测试 (future)
 ```
 
@@ -35,12 +36,13 @@ make -j$(nproc)
 | Week 1 | CUDA 编程模型 | `vector_add.cu`, `matmul_naive.cu` | Grid/Block/Thread, 内存层次, Warp |
 | Week 2 | GEMM 优化 | `matmul_tiled.cu` | Tiling, Shared Memory, Bank Conflict, 循环展开 |
 | Week 3 | Softmax/LayerNorm | `softmax.cu`, `layernorm.cu` | Warp Reduce, 数值稳定性 |
-| Week 4 | 性能分析 | 分析报告 | ncu/nsys profiling, roofline analysis |
+| Week 4 | Fused Attention | `attention.cu` | Kernel Fusion, Online Softmax, QK^T+Softmax+PV |
 
 ## 面试考点覆盖
 
 - GEMM 优化：Tiling, Shared Memory, 内存合并访问, occupancy 调优
 - Softmax/LayerNorm：Warp-level reduction, 数值稳定技巧
+- Fused Attention：Kernel fusion, Online softmax, QK^T+Softmax+PV 融合
 - Kernel launch overhead vs grid-stride loop 的权衡
 
 ## 环境要求
