@@ -443,7 +443,7 @@ int main(int argc, char **argv) {
     // ================================================================
     // Test 2: GPU Fused Attention
     // ================================================================
-    int smem_size = (D + 2 * TILE_KV * D + TILE_KV + D) * sizeof(float);
+    int smem_size = (D + 2 * 32 * D + 32 + D) * sizeof(float);
     int block_dim = (D <= 256) ? ((D + 31) / 32 * 32) : 256;
 
     printf("Running GPU (fused attention)...\n");
