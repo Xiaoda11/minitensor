@@ -618,8 +618,15 @@ int main(int argc, char **argv) {
     double cpu_ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
     printf("%.2f ms\n\n", cpu_ms);
 
+    // ---- GPU warmup: 吸收首次 kernel launch 的 JIT 开销 ----
+    {
+        int warmup_smem = (D + 2 * 32 * D + 32 + D) * sizeof(float);
+        attention_fused_kernel<<<1, 32, warmup_smem>>>(d_Q, d_K, d_V, d_O, 1, D);
+        CUDA_CHECK(cudaDeviceSynchronize());
+    }
+
     // ================================================================
-    // Test 2: GPU Fused Attention
+    // Test 2: GPU Fused Attention (v1)
     // ================================================================
     int smem_size = (D + 2 * 32 * D + 32 + D) * sizeof(float);
     // block_dim 不依赖 D——kernel 内部用 stride loop 处理任意 D
