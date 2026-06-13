@@ -230,55 +230,34 @@ __global__ void attention_fused_kernel(const float *Q, const float *K,
         __syncthreads();
 
         // ----------------------------------------------------------
-        // Step B: 计算这个 tile 的每个 score
-        //         每个 warp 负责 ceiling(TILE_KV / num_warps) 个位置
-        //         一个 warp 内部: 32 个 lane 并行做点积 → warp reduce sum
+        // Step B+C: 计算 scores + 同时收集 warp_max（合并优化，省掉单独扫描）
         // ----------------------------------------------------------
+        float warp_score_max = -INFINITY;
         for (int pos = warp_id; pos < TILE_KV; pos += num_warps) {
             int row = tile_start + pos;
             if (row >= S) {
-                // 无效位置，填入 -INFINITY（不会影响 max）
                 if (lane_id == 0) scores_tile[pos] = -INFINITY;
                 continue;
             }
-
-            // 点积 q_shared · k_shared[pos]
-            // 每个 lane 负责 D/32 个维度的乘积累加
             float dot = 0.0f;
             for (int d = lane_id; d < D; d += 32) {
                 dot += q_shared[d] * k_shared[pos * D + d];
             }
-            dot = warp_reduce_sum(dot);   // warp 内归约 → lane 0 有完整点积
+            dot = warp_reduce_sum(dot);
+            float score = dot * scale;
             if (lane_id == 0) {
-                scores_tile[pos] = dot * scale;  // 缩放到 shared memory
-            }
-        }
-        __syncthreads();  // 确保 scores_tile[] 全部写完
-
-        // ----------------------------------------------------------
-        // Step C: 找这个 tile 的最大 score
-        //         先每个 warp 找自己的 max，再跨 warp 汇总
-        // ----------------------------------------------------------
-
-        // C1. 每个线程扫描自己负责的 scores_tile 元素
-        float local_max = -INFINITY;
-        for (int pos = tid; pos < TILE_KV; pos += blockDim.x) {
-            int row = tile_start + pos;
-            if (row < S && scores_tile[pos] > local_max) {
-                local_max = scores_tile[pos];
+                scores_tile[pos] = score;
+                if (score > warp_score_max) warp_score_max = score;
             }
         }
 
-        // C2. Warp 内归约 → 每个 warp 的 lane 0 持有该 warp 的 max
-        float warp_max = warp_reduce_max(local_max);
-
-        // C3. 存到 k_shared[warp_id]（临时借用 k_shared 头部）
+        // 各 warp 的 lane 0 写入自己 warp 的 max 到 k_shared 头部
         if (lane_id == 0) {
-            k_shared[warp_id] = warp_max;
+            k_shared[warp_id] = warp_score_max;
         }
-        __syncthreads();
+        __syncthreads();  // sync 2: scores_tile 写完 + warp_max 就位
 
-        // C4. Warp 0 归约所有 warp 的 max → 全局 tile_max
+        // Step C: warp 0 归约所有 warp 的 max → tile_max（跨 warp reduce）
         float tile_max = -INFINITY;
         if (warp_id == 0) {
             if (lane_id < num_warps) {
@@ -294,11 +273,10 @@ __global__ void attention_fused_kernel(const float *Q, const float *K,
         float new_max = (tile_max > running_max) ? tile_max : running_max;
         float rescale = expf(running_max - new_max);
 
-        // D1. Rescale 旧的 out_acc 和 running_sum
+        // D1. Rescale 旧的 out_acc（不用 sync，各线程只写自己的 out_acc 元素）
         for (int d = tid; d < D; d += blockDim.x) {
             out_acc[d] *= rescale;
         }
-        __syncthreads();  // 确保所有 rescale 完成后再读 out_acc
 
         running_sum *= rescale;
         running_max = new_max;
