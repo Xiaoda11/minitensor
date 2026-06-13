@@ -355,6 +355,184 @@ __global__ void attention_fused_kernel(const float *Q, const float *K,
 }
 
 // ============================================================================
+// 3b. GPU Kernel V2: 优化版 — 分离 K/V 加载 + TILE_KV 翻倍 + 合并 sync
+// ============================================================================
+
+/**
+ * @brief Fused Attention — 优化版
+ *
+ * 相比 v1 的改进:
+ *   1. TILE_KV = 64（翻倍）→ tile 迭代次数减半
+ *   2. K 和 V 分时加载 — 先加载 K 算 QK^T，再用同一块 smem 加载 V 做累加
+ *      shared memory 只需: q[D] + k_or_v[TILE_KV*D] + scores[TILE_KV] + out_acc[D]
+ *   3. sync 从 6 个/tile 降到 4 个/tile:
+ *      - 加载 K → sync
+ *      - 算 scores + warp max（合并）→ sync
+ *      - exp + warp sum → sync
+ *      - 加载 V + 累加 → sync
+ *   4. warp_max 在计算 score 的同时收集，节省一次 warp_reduce_max 和一轮 shared memory 扫描
+ */
+__global__ void attention_fused_kernel_v2(const float *Q, const float *K,
+                                           const float *V, float *output,
+                                           int S, int D) {
+    const int TILE_KV = 64;
+
+    extern __shared__ float smem[];
+    float *q_shared    = smem;                                    // [D]
+    float *k_or_v      = smem + D;                                // [TILE_KV * D]  K 和 V 共用
+    float *scores_tile = smem + D + TILE_KV * D;                  // [TILE_KV]
+    float *out_acc     = smem + D + TILE_KV * D + TILE_KV;        // [D]
+
+    int q_idx     = blockIdx.x;
+    int tid       = threadIdx.x;
+    int warp_id   = tid / 32;
+    int lane_id   = tid % 32;
+    int num_warps = blockDim.x / 32;
+
+    if (q_idx >= S) return;
+
+    float scale = 1.0f / sqrtf((float)D);
+    int num_tiles = (S + TILE_KV - 1) / TILE_KV;
+
+    // ---- 加载 Q[q_idx] + output 累加器清零 ----
+    for (int d = tid; d < D; d += blockDim.x) {
+        q_shared[d] = Q[q_idx * D + d];
+        out_acc[d] = 0.0f;
+    }
+    __syncthreads();
+
+    // ---- Online softmax 状态 ----
+    float running_max = -INFINITY;
+    float running_sum = 0.0f;
+
+    // ---- Tile 遍历 ----
+    for (int tile = 0; tile < num_tiles; ++tile) {
+        int tile_start = tile * TILE_KV;
+
+        // ============================================================
+        // Phase 1: 加载 K_tile → 算 QK^T → softmax
+        // ============================================================
+
+        // 加载 K_tile
+        int k_total = TILE_KV * D;
+        for (int idx = tid; idx < k_total; idx += blockDim.x) {
+            int t = idx / D;
+            int col = idx % D;
+            int row = tile_start + t;
+            k_or_v[idx] = (row < S) ? K[row * D + col] : 0.0f;
+        }
+        __syncthreads();  // sync 1: K 加载完毕
+
+        // 计算 scores + 同时收集 warp_max
+        float warp_score_max = -INFINITY;  // 只在 lane 0 有效
+        for (int pos = warp_id; pos < TILE_KV; pos += num_warps) {
+            int row = tile_start + pos;
+            if (row >= S) {
+                if (lane_id == 0) scores_tile[pos] = -INFINITY;
+                continue;
+            }
+
+            // 点积 q · k[pos]
+            float dot = 0.0f;
+            for (int d = lane_id; d < D; d += 32) {
+                dot += q_shared[d] * k_or_v[pos * D + d];
+            }
+            dot = warp_reduce_sum(dot);
+            float score = dot * scale;
+
+            if (lane_id == 0) {
+                scores_tile[pos] = score;
+                if (score > warp_score_max) warp_score_max = score;
+            }
+        }
+
+        // 把各 warp 的 max 写入 k_or_v 头部（此时 K 数据已用完，可以覆写）
+        if (lane_id == 0) {
+            k_or_v[warp_id] = warp_score_max;
+        }
+        __syncthreads();  // sync 2: scores_tile 写完 + warp_max 各就各位
+
+        // warp 0 归约所有 warp 的 max → tile_max
+        float tile_max = -INFINITY;
+        if (warp_id == 0) {
+            tile_max = (lane_id < num_warps) ? k_or_v[lane_id] : -INFINITY;
+            tile_max = warp_reduce_max(tile_max);
+        }
+        tile_max = __shfl_sync(0xffffffff, tile_max, 0);  // broadcast
+
+        // ---- Online softmax update ----
+        float new_max = (tile_max > running_max) ? tile_max : running_max;
+        float rescale = expf(running_max - new_max);
+
+        // 等比缩小旧的 out_acc
+        for (int d = tid; d < D; d += blockDim.x) {
+            out_acc[d] *= rescale;
+        }
+        running_sum *= rescale;
+        running_max = new_max;
+
+        // 计算 exp(scores - new_max) + 归约 tile_sum
+        float local_sum_exp = 0.0f;
+        for (int pos = tid; pos < TILE_KV; pos += blockDim.x) {
+            int row = tile_start + pos;
+            if (row < S) {
+                float e = expf(scores_tile[pos] - new_max);
+                scores_tile[pos] = e;  // 覆写为 attention weight（后续 V 累加用）
+                local_sum_exp += e;
+            } else {
+                scores_tile[pos] = 0.0f;
+            }
+        }
+
+        // 跨 warp 归约 tile_sum_exp
+        float warp_exp_sum = warp_reduce_sum(local_sum_exp);
+        if (lane_id == 0) {
+            k_or_v[warp_id] = warp_exp_sum;
+        }
+        __syncthreads();  // sync 3: exp_scores 写完 + warp_exp_sum 就位
+
+        // warp 0 汇总
+        float tile_sum_exp = 0.0f;
+        if (warp_id == 0) {
+            tile_sum_exp = (lane_id < num_warps) ? k_or_v[lane_id] : 0.0f;
+            tile_sum_exp = warp_reduce_sum(tile_sum_exp);
+        }
+        tile_sum_exp = __shfl_sync(0xffffffff, tile_sum_exp, 0);
+        running_sum += tile_sum_exp;
+
+        // ============================================================
+        // Phase 2: 加载 V_tile → 累加 output
+        // ============================================================
+
+        // 加载 V_tile（复用 k_or_v 的空间）
+        for (int idx = tid; idx < k_total; idx += blockDim.x) {
+            int t = idx / D;
+            int col = idx % D;
+            int row = tile_start + t;
+            k_or_v[idx] = (row < S) ? V[row * D + col] : 0.0f;
+        }
+        __syncthreads();  // sync 4: V 加载完毕
+
+        // V 累加: out_acc[d] += Σ_pos scores_tile[pos] * V_tile[pos][d]
+        // 每个线程负责 out_acc 的一个维度 (col = tid)，遍历所有 pos 累加
+        for (int pos = 0; pos < TILE_KV; ++pos) {
+            int row = tile_start + pos;
+            if (row >= S) continue;
+            float weight = scores_tile[pos];
+            for (int d = tid; d < D; d += blockDim.x) {
+                out_acc[d] += weight * k_or_v[pos * D + d];
+            }
+        }
+        __syncthreads();  // sync 5: V 累加完成，准备进入下一 tile
+    }
+
+    // ---- 最终归一化 ----
+    for (int d = tid; d < D; d += blockDim.x) {
+        output[q_idx * D + d] = out_acc[d] / running_sum;
+    }
+}
+
+// ============================================================================
 // 4. 验证 + 工具函数
 // ============================================================================
 
@@ -471,13 +649,47 @@ int main(int argc, char **argv) {
            verify(h_cpu, h_gpu, n_out) ? "PASSED ✓" : "FAILED ✗");
 
     // ================================================================
+    // Test 3: GPU Fused Attention V2 (优化版)
+    // ================================================================
+    int smem_size_v2 = (D + 64 * D + 64 + D) * sizeof(float);
+    //                    q    k_or_v   scores out_acc
+
+    printf("Running GPU (fused v2, TILE=64)...\n");
+    printf("  Block dim:          %d (%d warps)\n", block_dim, block_dim / 32);
+    printf("  Shared memory:      %.2f KB\n", smem_size_v2 / 1024.0f);
+    printf("  Tiles (S=%d):       %d (v1: %d)\n",
+           S, (S + 63) / 64, (S + 31) / 32);
+    fflush(stdout);
+
+    CUDA_CHECK(cudaEventRecord(start));
+    attention_fused_kernel_v2<<<S, block_dim, smem_size_v2>>>(
+        d_Q, d_K, d_V, d_O, S, D);
+    CUDA_CHECK(cudaEventRecord(stop));
+    CUDA_CHECK(cudaEventSynchronize(stop));
+
+    float gpu_v2_ms = 0;
+    CUDA_CHECK(cudaEventElapsedTime(&gpu_v2_ms, start, stop));
+    printf("  Time: %.2f ms", gpu_v2_ms);
+    if (gpu_v2_ms > 0 && cpu_ms > 0)
+        printf("  (%.2fx vs CPU)", cpu_ms / gpu_v2_ms);
+    printf("\n");
+
+    CUDA_CHECK(cudaMemcpy(h_gpu, d_O, bytes_out, cudaMemcpyDeviceToHost));
+    printf("  Verification: %s\n\n",
+           verify(h_cpu, h_gpu, n_out) ? "PASSED ✓" : "FAILED ✗");
+
+    // ================================================================
     // Summary
     // ================================================================
     printf("========== Results ==========\n");
     printf("%-25s %8s  %s\n", "Version", "Time", "vs CPU");
     printf("%-25s %6.2f ms  %7s\n", "CPU (3-step)", cpu_ms, "—");
     printf("%-25s %6.2f ms  %6.2fx\n",
-           "GPU (fused)", gpu_ms, cpu_ms / gpu_ms);
+           "GPU (fused v1)", gpu_ms, cpu_ms / gpu_ms);
+    printf("%-25s %6.2f ms  %6.2fx\n",
+           "GPU (fused v2)", gpu_v2_ms, cpu_ms / gpu_v2_ms);
+    printf("\n--- Improvement ---\n");
+    printf("v2 vs v1: %.2fx\n", gpu_ms / gpu_v2_ms);
 
     printf("\n--- Key Takeaways ---\n");
     printf("1. Fused kernel avoids materializing [%d×%d] attention matrix\n",
@@ -485,10 +697,11 @@ int main(int argc, char **argv) {
     printf("   in GPU global memory — scores stay in registers + smem.\n");
     printf("2. Online softmax rescales old partial output when a larger\n");
     printf("   score is found, avoiding a second K/V scan.\n");
-    printf("3. Building blocks combined:\n");
-    printf("   - Tiled global memory loads (Week 2)\n");
-    printf("   - Warp reduce sum + max (Week 3 softmax)\n");
-    printf("   - Shared memory as cross-warp communication (Week 3)\n");
+    printf("3. v2 optimizations:\n");
+    printf("   - TILE_KV doubled (32→64): halved tile iterations\n");
+    printf("   - K/V time-sharing: smem reused instead of duplicated\n");
+    printf("   - warp_max collected during score compute: saved 1 scan\n");
+    printf("   - 5 syncs/tile vs 6: less barrier overhead\n");
 
     // ---- Cleanup ----
     delete[] h_Q; delete[] h_K; delete[] h_V;
