@@ -677,16 +677,16 @@ int main(int argc, char **argv) {
     printf("v2 vs v1: %.2fx\n", gpu_ms / gpu_v2_ms);
 
     printf("\n--- Key Takeaways ---\n");
-    printf("1. Fused kernel avoids materializing [%d×%d] attention matrix\n",
-           S, S);
-    printf("   in GPU global memory — scores stay in registers + smem.\n");
-    printf("2. Online softmax rescales old partial output when a larger\n");
+    printf("1. Fused kernel: [%d×%d] attention matrix never touches\n", S, S);
+    printf("   GPU global memory — stays in registers + smem.\n");
+    printf("2. Online softmax rescales partial output when a larger\n");
     printf("   score is found, avoiding a second K/V scan.\n");
-    printf("3. v2 optimizations:\n");
-    printf("   - TILE_KV doubled (32→64): halved tile iterations\n");
-    printf("   - K/V time-sharing: smem reused instead of duplicated\n");
-    printf("   - warp_max collected during score compute: saved 1 scan\n");
-    printf("   - 5 syncs/tile vs 6: less barrier overhead\n");
+    printf("3. Optimized v1 (4 syncs/tile):\n");
+    printf("   - warp_max tracked during QK^T: saved 1 full scan\n");
+    printf("   - Removed redundant sync after rescale out_acc\n");
+    printf("4. v2 lesson: splitting K/V loads hurt perf — V load\n");
+    printf("   latency exposed. Combined K+V load wins despite\n");
+    printf("   smaller TILE_KV (32 vs 64).\n");
 
     // ---- Cleanup ----
     delete[] h_Q; delete[] h_K; delete[] h_V;
