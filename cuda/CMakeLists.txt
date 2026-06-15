@@ -43,3 +43,6 @@ add_executable(layernorm_cuda layernorm.cu)
 
 # ---- Week 4: Fused Attention ----
 add_executable(attention attention.cu)
+
+# ---- Phase 2: Inference Engine ----
+add_executable(phase2_main phase2_main.cu)

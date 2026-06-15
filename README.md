@@ -14,8 +14,15 @@ minitensor/
 │   └── CMakeLists.txt
 ├── cuda/                   # CUDA 后端 (Phase 1+)
 │   ├── vector_add.cu       # Week 1: Grid/Block/Thread 入门
+│   ├── matmul_naive.cu     # Week 1 (续): 朴素矩阵乘法
+│   ├── matmul_tiled.cu     # Week 2: Tiling + Shared Memory
+│   ├── softmax.cu          # Week 3: Softmax (Warp Reduce)
+│   ├── layernorm.cu        # Week 3: LayerNorm
+│   ├── attention.cu        # Week 4: Fused Attention
+│   ├── kv_cache.h          # Phase 2: KV Cache 数据结构
+│   ├── phase2_main.cu      # Phase 2: 微型推理引擎
 │   ├── CMakeLists.txt
-│   └── README.md           # 4 周学习路线图
+│   └── README.md           # 学习路线图
 └── README.md               # 本文件
 ```
 
@@ -41,7 +48,7 @@ nvcc -O2 vector_add.cu -o vector_add && ./vector_add
 | v0.2 | Shape/Stride, 基础算子, 推理 Demo | ✓ |
 | v0.3 | 计算图引擎 + 2 层 MLP 推理 | ✓ |
 | v0.4 | CUDA Kernel 重写 | ✓ |
-| v0.5 | KV Cache + PagedAttention (规划中) | — |
+| v0.5 | KV Cache + PagedAttention (Phase 2 进行中) | — |
 
 ## 技术栈
 

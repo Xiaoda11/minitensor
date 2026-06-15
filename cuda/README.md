@@ -14,6 +14,8 @@ cuda/
 ├── softmax.cu            # Week 3: Softmax (Warp Reduce)
 ├── layernorm.cu          # Week 3: LayerNorm CUDA
 ├── attention.cu          # Week 4: Fused Attention (QK^T + Softmax + PV)
+├── kv_cache.h            # Phase 2 Week 1: KV Cache 数据结构
+├── phase2_main.cu        # Phase 2: 微型推理引擎集成
 └── tests/                # 单元测试 (future)
 ```
 
@@ -51,3 +53,11 @@ make -j$(nproc)
 - CUDA Toolkit ≥ 11.0
 - nvidia-smi + nvcc 可用
 - 推荐：nsight-compute (ncu) / nsight-systems (nsys)
+
+## Phase 2: 微型推理引擎 (v0.5)
+
+| 周次 | 主题 | 文件 | 关键概念 |
+|------|------|------|----------|
+| Week 1 | KV Cache + 自回归生成 | `kv_cache.h`, `phase2_main.cu` | Prefill/Decode, KV Cache 数据结构, 自回归循环 |
+| Week 2 | 显存分析 + CUDA 集成 | — | KV Cache 显存占比, GQA/MQA, CUDA kernel 集成 |
+| Week 3-4 | PagedAttention + Batching | — | 分块分配, Block Table, Continuous Batching |
