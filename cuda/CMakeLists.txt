@@ -46,3 +46,4 @@ add_executable(attention attention.cu)
 
 # ---- Phase 2: Inference Engine ----
 add_executable(phase2_main phase2_main.cu)
+add_executable(prefill prefill.cu)
