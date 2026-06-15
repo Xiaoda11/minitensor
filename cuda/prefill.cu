@@ -104,7 +104,7 @@ inline const float* get_head_ptr(const float *data, int layer, int head,
     // TODO: 填偏移计算
     // 提示: 一层占的大小 = H * S * D
     //       一个头在一层中占的大小 = S * D
-    return ???;
+    return ((layer * H * S * D + head * S * D)+ data);
 }
 
 /**
@@ -125,7 +125,7 @@ inline const float* get_token_k_ptr(const float *k_data, int layer, int head,
                                      int pos, int H, int S, int D) {
     // TODO: 填偏移计算 — 先跳到 head，再跳到 pos
     // 提示: 在 get_head_ptr 的基础上加 pos * D
-    return ???;
+    return ((layer * H * S * D + head * S * D + pos * D)+ k_data);
 }
 
 // ============================================================================
@@ -165,8 +165,10 @@ void prefill(KVCache &cache,
             // --------------------------------------------------------------
             for (int pos = 0; pos < S; ++pos) {
                 // TODO: 填下面两行 — 获取 K[l][h][pos] 和 V[l][h][pos] 的指针
-                const float *k_ptr = ???;
-                const float *v_ptr = ???;
+                const float *k_ptr = get_token_k_ptr(K, l, h,
+                                     pos, H, S, D);
+                const float *v_ptr = get_token_k_ptr(V, l, h,
+                                     pos, H, S, D);
                 cache.store_kv(l, h, pos, k_ptr, v_ptr);
             }
 
@@ -175,9 +177,9 @@ void prefill(KVCache &cache,
             //         Q[l][h] @ K[l][h]^T / √D → softmax → @ V[l][h]
             // --------------------------------------------------------------
             // TODO: 填下面三行 — 获取 Q[l][h], K[l][h], V[l][h] 的指针
-            const float *q_head = ???;
-            const float *k_head = ???;
-            const float *v_head = ???;
+            const float *q_head =get_head_ptr(Q, l, h,H,  S,  D) ;
+            const float *k_head = get_head_ptr(K, l, h,H,  S,  D);
+            const float *v_head =get_head_ptr(V, l, h,H,  S,  D);
 
             // 输出位置: output[l][h] 的 [S×D] 矩阵
             int out_offset = ((l * H + h) * S) * D;
