@@ -60,7 +60,7 @@ inline int kv_offset(int layer, int head, int pos, int H, int D, int S_max) {
     // 提示: 一层的大小 = H * S_max * D
     //       一个 head 在一层中的大小 = S_max * D
     //       一个 token 在一个 head 中的大小 = D
-    return ???;
+    return layer*H * S_max * D + head*S_max * D +  pos *D;
 }
 
 // ============================================================================
@@ -135,8 +135,8 @@ public:
     void store_kv(int layer, int head, int pos,
                   const float *k, const float *v) {
         // TODO: 填下面两行 — 用 kv_offset 算出起始索引
-        int k_idx = ???;
-        int v_idx = ???;
+        int k_idx = kv_offset(layer, head, pos, num_heads_,  head_dim_ ,  max_seq_len_);
+        int v_idx = kv_offset(layer, head, pos, num_heads_,  head_dim_ ,  max_seq_len_);
 
         // 复制 D 个元素
         memcpy(K_data_ + k_idx, k, head_dim_ * sizeof(float));
@@ -147,7 +147,7 @@ public:
      * @brief 获取某个位置的 K 指针（只读）
      */
     const float* get_k_ptr(int layer, int head, int pos) const {
-        int idx = ???;
+        int idx = kv_offset(layer, head, pos, num_heads_, head_dim_, max_seq_len_);
         return K_data_ + idx;
     }
 
@@ -155,7 +155,7 @@ public:
      * @brief 获取某个位置的 V 指针（只读）
      */
     const float* get_v_ptr(int layer, int head, int pos) const {
-        int idx = ???;
+        int idx = kv_offset(layer, head, pos, num_heads_, head_dim_, max_seq_len_);
         return V_data_ + idx;
     }
 
