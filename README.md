@@ -12,7 +12,7 @@ minitensor/
 │   ├── memory_pool.h       # 内存池
 │   ├── main.cpp            # 47 个测试 (Day 1–15)
 │   └── CMakeLists.txt
-├── cuda/                   # CUDA 后端 (Phase 1+2)
+├── cuda/                   # CUDA 后端 (Phase 1+2+3)
 │   ├── vector_add.cu       # Week 1: Grid/Block/Thread 入门
 │   ├── matmul_naive.cu     # Week 1 (续): 朴素矩阵乘法
 │   ├── matmul_tiled.cu     # Week 2: Tiling + Shared Memory
@@ -24,6 +24,8 @@ minitensor/
 │   ├── prefill.cu          # Phase 2: Prefill 阶段
 │   ├── decode.cu           # Phase 2: Decode 阶段
 │   ├── generate.cu         # Phase 2: generate() 循环
+│   ├── fragmentation.cu    # Phase 3: KV Cache 碎片分析
+│   ├── paged_attention.cu  # Phase 3: PagedAttention 实现
 │   ├── CMakeLists.txt
 │   └── README.md           # 学习路线图
 └── README.md               # 本文件
@@ -52,6 +54,7 @@ nvcc -O2 vector_add.cu -o vector_add && ./vector_add
 | v0.3 | 计算图引擎 + 2 层 MLP 推理 | ✓ |
 | v0.4 | CUDA Kernel 重写 | ✓ |
 | v0.5 | KV Cache + Prefill/Decode/Generate (Phase 2 完成) | ✓ |
+| v0.6 | PagedAttention + 分页 KV Cache (Phase 3 进行中) | ~ |
 
 ## 技术栈
 

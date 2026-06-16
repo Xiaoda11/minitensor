@@ -19,6 +19,8 @@ cuda/
 ├── prefill.cu            # Phase 2 Day 3: Prefill 阶段
 ├── decode.cu             # Phase 2 Day 4: Decode 阶段
 ├── generate.cu           # Phase 2 Day 5: generate() 自回归循环
+├── fragmentation.cu      # Phase 3 Day 1: KV Cache 碎片分析
+├── paged_attention.cu    # Phase 3 Day 2: PagedAttention 实现
 └── tests/                # 单元测试 (future)
 ```
 
@@ -68,3 +70,13 @@ make -j$(nproc)
 | Day 5 | generate() 循环 | `generate.cu` | Prefill+Decode 串联, 自回归生成 |
 | Week 2 | 显存分析 + CUDA 集成 | — | KV Cache 显存占比, GQA/MQA, CUDA kernel 集成 |
 | Week 3-4 | PagedAttention + Batching | — | 分块分配, Block Table, Continuous Batching |
+
+## Phase 3: PagedAttention + Continuous Batching (进行中)
+
+| 天次 | 主题 | 文件 | 关键概念 |
+|------|------|------|----------|
+| Day 1 | KV Cache 碎片分析 | `fragmentation.cu` | 连续 vs 分页浪费对比 (75%→1.6%) |
+| Day 2 | PagedAttention 实现 | `paged_attention.cu` | Block Table, 逻辑→物理翻译, 按需分配 |
+| Day 3 | PagedAttention Attention | TBD | 分页 attention 计算, block 遍历 |
+| Day 4 | Continuous Batching | TBD | 请求调度, 动态增删请求 |
+| Day 5 | 端到端推理 | TBD | Prefill+Decode+PagedAttention 集成 |
