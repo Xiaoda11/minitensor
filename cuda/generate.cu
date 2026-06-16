@@ -333,17 +333,22 @@ void generate(KVCache &cache,
         // TODO 3: 调用 decode() 对新 token 做 attention
         // decode 签名: decode(cache, Q_new, K_new, V_new, output, L, H, S_cache, D)
         // ??? decode(???);
-        decode(cache, Q_new, K_new, V_new,decode_output, L, H, S_prompt, D);
+        decode(cache, Q_new, K_new, V_new,decode_output, L, H,S_before, D);
         // --- 3b: 记录 logit ---
         // 简化: attention 输出全体元素求和 → "logit 信号"
         // TODO 4: 计算 out_logits[step] = sum of all decode_output elements
         // ??? out_logits[step] = ???;
-
+        float logit_sum = 0.0f;
+        for (int i = 0; i < L * per_layer; ++i) {
+            logit_sum += decode_output[i];
+        }
+        out_logits[step] = logit_sum;
         // --- 3c: 生成下一个 token 的 Q/K/V ---
         if (step < max_new_tokens - 1) {
             // TODO 5: 调用 next_token_from_output
             // 签名: next_token_from_output(attn_output, Q_new, K_new, V_new, total_elements)
             // ??? next_token_from_output(???);
+            next_token_from_output(decode_output, Q_new, K_new, V_new, L * per_layer); 
         }
     }
 
