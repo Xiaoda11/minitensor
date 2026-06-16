@@ -31,6 +31,7 @@ cuda/attention
 cuda/phase2_main
 cuda/prefill
 cuda/decode
+cuda/generate
 
 #docs
 计算图代码逐行解释.md

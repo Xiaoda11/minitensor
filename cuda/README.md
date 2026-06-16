@@ -14,8 +14,11 @@ cuda/
 ├── softmax.cu            # Week 3: Softmax (Warp Reduce)
 ├── layernorm.cu          # Week 3: LayerNorm CUDA
 ├── attention.cu          # Week 4: Fused Attention (QK^T + Softmax + PV)
-├── kv_cache.h            # Phase 2 Week 1: KV Cache 数据结构
-├── phase2_main.cu        # Phase 2: 微型推理引擎集成
+├── kv_cache.h            # Phase 2 Day 2: KV Cache 数据结构
+├── phase2_main.cu        # Phase 2 Day 2: KV Cache 测试
+├── prefill.cu            # Phase 2 Day 3: Prefill 阶段
+├── decode.cu             # Phase 2 Day 4: Decode 阶段
+├── generate.cu           # Phase 2 Day 5: generate() 自回归循环
 └── tests/                # 单元测试 (future)
 ```
 
@@ -56,8 +59,12 @@ make -j$(nproc)
 
 ## Phase 2: 微型推理引擎 (v0.5)
 
-| 周次 | 主题 | 文件 | 关键概念 |
+| 天次 | 主题 | 文件 | 关键概念 |
 |------|------|------|----------|
-| Week 1 | KV Cache + 自回归生成 | `kv_cache.h`, `phase2_main.cu` | Prefill/Decode, KV Cache 数据结构, 自回归循环 |
+| Day 1 | 自回归生成流程 | — | Prefill vs Decode, 计算量对比 |
+| Day 2 | KV Cache 数据结构 | `kv_cache.h`, `phase2_main.cu` | 静态池, (layer,head,pos) 偏移, memcpy |
+| Day 3 | Prefill 阶段 | `prefill.cu` | 缓存所有 K/V, [S×S] attention |
+| Day 4 | Decode 阶段 | `decode.cu` | 单 token Q 对全量 K/V, [1×S] attention |
+| Day 5 | generate() 循环 | `generate.cu` | Prefill+Decode 串联, 自回归生成 |
 | Week 2 | 显存分析 + CUDA 集成 | — | KV Cache 显存占比, GQA/MQA, CUDA kernel 集成 |
 | Week 3-4 | PagedAttention + Batching | — | 分块分配, Block Table, Continuous Batching |

@@ -12,7 +12,7 @@ minitensor/
 │   ├── memory_pool.h       # 内存池
 │   ├── main.cpp            # 47 个测试 (Day 1–15)
 │   └── CMakeLists.txt
-├── cuda/                   # CUDA 后端 (Phase 1+)
+├── cuda/                   # CUDA 后端 (Phase 1+2)
 │   ├── vector_add.cu       # Week 1: Grid/Block/Thread 入门
 │   ├── matmul_naive.cu     # Week 1 (续): 朴素矩阵乘法
 │   ├── matmul_tiled.cu     # Week 2: Tiling + Shared Memory
@@ -20,7 +20,10 @@ minitensor/
 │   ├── layernorm.cu        # Week 3: LayerNorm
 │   ├── attention.cu        # Week 4: Fused Attention
 │   ├── kv_cache.h          # Phase 2: KV Cache 数据结构
-│   ├── phase2_main.cu      # Phase 2: 微型推理引擎
+│   ├── phase2_main.cu      # Phase 2: KV Cache 测试
+│   ├── prefill.cu          # Phase 2: Prefill 阶段
+│   ├── decode.cu           # Phase 2: Decode 阶段
+│   ├── generate.cu         # Phase 2: generate() 循环
 │   ├── CMakeLists.txt
 │   └── README.md           # 学习路线图
 └── README.md               # 本文件
