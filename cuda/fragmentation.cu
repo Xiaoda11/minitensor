@@ -85,8 +85,13 @@ void analyze_continuous(const int *lengths, int N, int S_max,
     // ??? long long used_slots = ???;
 
     // --- 你的代码 ---
-    long long allocated_slots = 0;
-    long long used_slots = 0;
+    long long allocated_slots =N * L * H * S_max ;
+    long long used_slots = 0 ;
+    for (int i = 0; i < N; i++)
+    {
+       used_slots += L * H * lengths[i];
+    }
+       
     // --- 你的代码结束 ---
 
     *out_allocated = allocated_slots;
@@ -141,6 +146,14 @@ void analyze_paged(const int *lengths, int N, int S_max,
     // --- 你的代码 ---
     long long allocated_slots = 0;
     long long used_slots = 0;
+    int *block_num = new int[N];
+    for (size_t i = 0; i < N; i++)
+    {
+        block_num[i] = (lengths[i] + block_size - 1) / block_size;
+        allocated_slots += L * H * block_num[i]*block_size;
+        used_slots += L * H *lengths[i];
+    }
+    delete []block_num;
     // --- 你的代码结束 ---
 
     *out_allocated = allocated_slots;
@@ -179,10 +192,10 @@ void visualize_paged_example() {
     // 连续方案已在上面的 ASCII 展示
     // TODO: 你在这里画分页方案的 ASCII 图
 
-    printf("  请求 0 (长度 10): need ??? blocks → ??? slots, waste ???\n");
-    printf("  请求 1 (长度 18): need ??? blocks → ??? slots, waste ???\n");
-    printf("  请求 2 (长度 5):  need ??? blocks → ??? slots, waste ???\n");
-    printf("\n  [? ] slots 分配, [? ] 使用, [?]%% 浪费\n");
+    printf("  请求 0 (长度 10): need 2 blocks → 16 slots, waste 6\n");
+    printf("  请求 1 (长度 18): need 3 blocks → 24 slots, waste 6\n");
+    printf("  请求 2 (长度 5):  need 1 block  →  8 slots, waste 3\n");
+    printf("\n  [48] slots 分配, [33] 使用, [31.25]%% 浪费\n");
 }
 
 // ============================================================================
@@ -221,12 +234,13 @@ bool test_basic() {
     long long cont_alloc, cont_used; float cont_waste;
     // TODO 3: 调用 analyze_continuous 并打印结果
     // ??? analyze_continuous(???);
-
+    analyze_continuous(lengths,N,S_max,D,L,H,&cont_alloc, &cont_used,&cont_waste);
     // 分页方案 (block_size=16)
     long long page_alloc, page_used; float page_waste;
     // TODO 4: 调用 analyze_paged 并打印结果
     // ??? analyze_paged(???);
-
+    int block_size = 16;
+    analyze_paged(lengths,N,S_max,block_size,D,L,H,&page_alloc, &page_used,&page_waste);
     // 统计
     int total_len = 0, max_len = 0, min_len = S_max;
     for (int i = 0; i < N; ++i) {
@@ -258,11 +272,11 @@ bool test_small() {
     long long cont_alloc, cont_used; float cont_waste;
     // TODO 5: 调用 analyze_continuous
     // ??? analyze_continuous(???);
-
+    analyze_continuous(lengths,N,S_max,D,L,H,&cont_alloc, &cont_used,&cont_waste);
     long long page_alloc, page_used; float page_waste;
     // TODO 6: 调用 analyze_paged (各种 block_size)
     // ??? analyze_paged(???);
-
+    analyze_paged(lengths,N,S_max,16,D,L,H,&page_alloc, &page_used,&page_waste);
     printf("  block_size=16: 连续浪费=%.1f%%, 分页浪费=%.1f%%\n",
            cont_waste, page_waste);
 
