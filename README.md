@@ -51,7 +51,7 @@ nvcc -O2 vector_add.cu -o vector_add && ./vector_add
 | v0.2 | Shape/Stride, 基础算子, 推理 Demo | ✓ |
 | v0.3 | 计算图引擎 + 2 层 MLP 推理 | ✓ |
 | v0.4 | CUDA Kernel 重写 | ✓ |
-| v0.5 | KV Cache + PagedAttention (Phase 2 进行中) | — |
+| v0.5 | KV Cache + Prefill/Decode/Generate (Phase 2 完成) | ✓ |
 
 ## 技术栈
 

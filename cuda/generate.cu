@@ -277,12 +277,12 @@ void generate(KVCache &cache,
     //
     // TODO 1: 分配 prefill_output 并调用 prefill()
     // 提示: 总元素数 = L * H * S_prompt * D
-    float *prefill_output = ???;   // TODO 1a: new float[???]
+    float *prefill_output =new float[L * H * S_prompt * D];   // TODO 1a: new float[???]
 
     // TODO 1b: 调用 prefill — 把 prompt 的 K/V 缓存下来 + 算 attention
     // prefill 签名: prefill(cache, Q, K, V, output, L, H, S, D)
     // ??? prefill(???);
-
+    prefill(cache,prompt_Q, prompt_K, prompt_V, prefill_output, L, H, S_prompt, D);
     // ========================================================================
     // Step 2: 构造第一个新 token 的 Q/K/V
     // ========================================================================
@@ -302,16 +302,16 @@ void generate(KVCache &cache,
         for (int h = 0; h < H; ++h) {
             // TODO 2a: 计算 prefill_output[l][h][S_prompt-1] 的偏移
             // 提示: 一层 = H * S_prompt * D, 一个 head = S_prompt * D
-            int src_offset = ???;
+            int src_offset = (l * H * S_prompt * D) + (h * S_prompt * D) + ((S_prompt-1) * D);
             int dst_base = (l * H + h) * D;
 
             // TODO 2b: 从 prefill_output 复制 D 个元素，映射到 Q_new/K_new/V_new
             // 映射系数: Q*=0.5, K*=0.3, V*=0.2
             for (int d = 0; d < D; ++d) {
-                float val = prefill_output[???];
-                Q_new[???] = val * 0.5f;
-                K_new[???] = val * 0.3f;
-                V_new[???] = val * 0.2f;
+                float val = prefill_output[d+src_offset];
+                Q_new[d+dst_base] = val * 0.5f;
+                K_new[d+dst_base] = val * 0.3f;
+                V_new[d+dst_base] = val * 0.2f;
             }
         }
     }
@@ -333,7 +333,7 @@ void generate(KVCache &cache,
         // TODO 3: 调用 decode() 对新 token 做 attention
         // decode 签名: decode(cache, Q_new, K_new, V_new, output, L, H, S_cache, D)
         // ??? decode(???);
-
+        decode(cache, Q_new, K_new, V_new,decode_output, L, H, S_prompt, D);
         // --- 3b: 记录 logit ---
         // 简化: attention 输出全体元素求和 → "logit 信号"
         // TODO 4: 计算 out_logits[step] = sum of all decode_output elements
