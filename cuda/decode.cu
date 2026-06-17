@@ -147,10 +147,9 @@ void decode(KVCache &cache,
             //       用 memcpy(K_head + pos*D, ptr, D*sizeof(float)) 复制
 
             // TODO: 填下面循环体 (约 3-4 行)
+            // 提示: cache.get_k_ptr(l,h,pos) 获取 K 指针, memcpy 到 K_head + pos*D
+            //       cache.get_v_ptr(l,h,pos) 获取 V 指针, memcpy 到 V_head + pos*D
             for (int pos = 0; pos < S_cache; ++pos) {
-                // ??? 获取 cache 中 (l, h, pos) 的 K 和 V 指针
-                // ??? 用 memcpy 复制 D 个 float 到 K_head + pos*D
-                // ??? 用 memcpy 复制 D 个 float 到 V_head + pos*D
                 const  float *K_head_temp = cache.get_k_ptr(l,h,pos);
                 const  float *v_head_temp = cache.get_v_ptr(l,h,pos);
                 memcpy(K_head + pos*D, K_head_temp, D*sizeof(float));

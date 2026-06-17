@@ -81,8 +81,6 @@ void analyze_continuous(const int *lengths, int N, int S_max,
     //   - 总分配的 float 数 = ???
     //   - 实际使用的 float 数 = ???
     //
-    // ??? long long allocated_slots = ???;
-    // ??? long long used_slots = ???;
 
     // --- 你的代码 ---
     long long allocated_slots =N * L * H * S_max ;
@@ -140,8 +138,6 @@ void analyze_paged(const int *lengths, int N, int S_max,
     //   - 使用量 = sum of lengths[i]
     //   - 浪费 = 分配 - 使用 = 每个请求最后 block 未用部分
     //
-    // ??? long long allocated_slots = ???;
-    // ??? long long used_slots = ???;
 
     // --- 你的代码 ---
     long long allocated_slots = 0;
@@ -233,12 +229,10 @@ bool test_basic() {
     // 连续方案
     long long cont_alloc, cont_used; float cont_waste;
     // TODO 3: 调用 analyze_continuous 并打印结果
-    // ??? analyze_continuous(???);
     analyze_continuous(lengths,N,S_max,D,L,H,&cont_alloc, &cont_used,&cont_waste);
     // 分页方案 (block_size=16)
     long long page_alloc, page_used; float page_waste;
     // TODO 4: 调用 analyze_paged 并打印结果
-    // ??? analyze_paged(???);
     int block_size = 16;
     analyze_paged(lengths,N,S_max,block_size,D,L,H,&page_alloc, &page_used,&page_waste);
     // 统计
@@ -271,11 +265,9 @@ bool test_small() {
 
     long long cont_alloc, cont_used; float cont_waste;
     // TODO 5: 调用 analyze_continuous
-    // ??? analyze_continuous(???);
     analyze_continuous(lengths,N,S_max,D,L,H,&cont_alloc, &cont_used,&cont_waste);
     long long page_alloc, page_used; float page_waste;
     // TODO 6: 调用 analyze_paged (各种 block_size)
-    // ??? analyze_paged(???);
     analyze_paged(lengths,N,S_max,16,D,L,H,&page_alloc, &page_used,&page_waste);
     printf("  block_size=16: 连续浪费=%.1f%%, 分页浪费=%.1f%%\n",
            cont_waste, page_waste);

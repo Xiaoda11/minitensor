@@ -87,9 +87,6 @@ struct BlockTable {
         //   offset_in_block = pos % BLOCK_SIZE
         //   physical_block = physical_blocks[logical_block]
         //
-        // ??? int logical_block = ???;
-        // ??? *out_phys_blk = ???;
-        // ??? *out_offset = ???;
 
         // --- 你的代码 ---
         int logical_block = pos / BLOCK_SIZE;
@@ -185,14 +182,6 @@ public:
         //   3. 同时填入 tables[rid].physical_blocks[found] 并标记 block_free[]=false
         //   4. found == num_blocks 时 break，最后设置 num_blocks 和 active
         //
-        // ??? int found = 0;
-        // ??? for (int pb = 0; pb < TOTAL_PHYSICAL_BLOCKS; ++pb) {
-        // ???     if (block_free[pb]) {
-        // ???         tables[rid].physical_blocks[found++] = pb;
-        // ???         block_free[pb] = false;
-        // ???         if (found == num_blocks) break;
-        // ???     }
-        // ??? }
 
         // --- 你的代码 ---
         int rid = 0;
@@ -276,10 +265,6 @@ public:
         //                     + offset * D
         //   3. memcpy(K_target, k_vec, D * sizeof(float))
         //
-        // ??? int phys_blk, offset;
-        // ??? tables[rid].translate(pos, ???, ???);
-        // ??? float *K_target = ???;
-        // ??? float *V_target = ???;
 
         // --- 你的代码 ---
         int phys_blk;
@@ -315,11 +300,6 @@ public:
         // ================================================================
         // 提示: 和 store 完全相同，只是 memcpy 方向相反 (从 pool → out)
         //
-        // ??? int phys_blk, offset;
-        // ??? tables[rid].translate(pos, ???, ???);
-        // ??? float *K_src = ???;
-        // ??? float *V_src = ???;
-        // ??? memcpy(k_out, K_src, D * sizeof(float));
 
        int phys_blk;
         int offset;
@@ -367,8 +347,6 @@ bool test_allocate_store_load() {
 
     // Step 1: 分配一个请求，需要 2 个 block
     // TODO 6: 调用 allocate
-    // ??? int rid = g_cache.allocate(???);
-    // ??? assert(rid >= 0);
 
     int rid = -1;
     rid = g_cache.allocate(2);
@@ -385,7 +363,6 @@ bool test_allocate_store_load() {
     
     // 在 head=0 的 pos=5 处存储
     // TODO 7: 调用 store
-    // ??? g_cache.store(rid, 0, 5, k_vec, v_vec);
 
     // --- 你的代码 ---
     g_cache.store(rid, 0, 5, k_vec, v_vec);
@@ -398,7 +375,6 @@ bool test_allocate_store_load() {
     // Step 3: 读回来
     float k_out[D], v_out[D];
     // TODO 8: 调用 load
-    // ??? g_cache.load(rid, 0, 5, k_out, v_out);
 
     // --- 你的代码 ---
 
@@ -415,7 +391,6 @@ bool test_allocate_store_load() {
     // Step 5: 释放
     int free_before = g_cache.count_free_blocks();
     // TODO 9: 调用 free
-    // ??? g_cache.free(???);
 
     // --- 你的代码 ---
     g_cache.free(rid);
@@ -457,8 +432,6 @@ bool test_multi_request() {
     // Step 1: 分配 3 个请求
     for (int i = 0; i < 3; ++i) {
         // TODO 10: 计算需要的 block 数 + 分配
-        // ??? num_blocks[i] = ???;  // ceil(lengths[i] / BLOCK_SIZE)
-        // ??? rid[i] = g_cache.allocate(???);
 
         // --- 你的代码 ---
         num_blocks[i] = (lengths[i] + BLOCK_SIZE - 1) / BLOCK_SIZE;;
@@ -488,8 +461,6 @@ bool test_multi_request() {
         float k_vec[D], v_vec[D];
         // TODO 11: 填充 k_vec/v_vec 并调用 store
         // 提示: 在 pos = lengths[i] - 1 (最后一个位置) 存储，方便验证
-        // ??? for (int d = 0; d < D; ++d) { ... }
-        // ??? g_cache.store(rid[i], 0, lengths[i]-1, k_vec, v_vec);
 
         // --- 你的代码 ---
         for (int d = 0; d < D; ++d) { 
@@ -505,8 +476,6 @@ bool test_multi_request() {
         float k_out[D], v_out[D];
         float expected_k = (float)(rid[i] * 100 + lengths[i] - 1);
         // TODO 12: 调用 load 并验证
-        // ??? g_cache.load(rid[i], 0, lengths[i]-1, k_out, v_out);
-        // ??? assert(k_out[0] == expected_k);
         g_cache.load(rid[i], 0, lengths[i]-1, k_out, v_out);
         assert(k_out[0] == expected_k);
         // --- 你的代码 ---
@@ -531,7 +500,6 @@ bool test_multi_request() {
     // Step 5: 释放所有请求
     for (int i = 0; i < 3; ++i) {
         // TODO 13: 释放请求
-        // ??? g_cache.free(???);
 
         // --- 你的代码 ---
         g_cache.free(rid[i]);

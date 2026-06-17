@@ -277,11 +277,10 @@ void generate(KVCache &cache,
     //
     // TODO 1: 分配 prefill_output 并调用 prefill()
     // 提示: 总元素数 = L * H * S_prompt * D
-    float *prefill_output =new float[L * H * S_prompt * D];   // TODO 1a: new float[???]
+    float *prefill_output =new float[L * H * S_prompt * D];
 
     // TODO 1b: 调用 prefill — 把 prompt 的 K/V 缓存下来 + 算 attention
     // prefill 签名: prefill(cache, Q, K, V, output, L, H, S, D)
-    // ??? prefill(???);
     prefill(cache,prompt_Q, prompt_K, prompt_V, prefill_output, L, H, S_prompt, D);
     // ========================================================================
     // Step 2: 构造第一个新 token 的 Q/K/V
@@ -332,12 +331,10 @@ void generate(KVCache &cache,
         // --- 3a: 执行 decode ---
         // TODO 3: 调用 decode() 对新 token 做 attention
         // decode 签名: decode(cache, Q_new, K_new, V_new, output, L, H, S_cache, D)
-        // ??? decode(???);
         decode(cache, Q_new, K_new, V_new,decode_output, L, H,S_before, D);
         // --- 3b: 记录 logit ---
         // 简化: attention 输出全体元素求和 → "logit 信号"
         // TODO 4: 计算 out_logits[step] = sum of all decode_output elements
-        // ??? out_logits[step] = ???;
         float logit_sum = 0.0f;
         for (int i = 0; i < L * per_layer; ++i) {
             logit_sum += decode_output[i];
@@ -347,7 +344,6 @@ void generate(KVCache &cache,
         if (step < max_new_tokens - 1) {
             // TODO 5: 调用 next_token_from_output
             // 签名: next_token_from_output(attn_output, Q_new, K_new, V_new, total_elements)
-            // ??? next_token_from_output(???);
             next_token_from_output(decode_output, Q_new, K_new, V_new, L * per_layer); 
         }
     }

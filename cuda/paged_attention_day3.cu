@@ -157,12 +157,6 @@ void paged_attention_decode(const MiniPagedCache &cache,
     //   1. cache.load(pos, k_vec, v_vec)
     //   2. 计算 query 和 k_vec 的点积 → scores[pos]
     //
-    // ??? float *scores = ???;
-    // ??? for (int pos = 0; pos < length; ++pos) {
-    // ???     float k_vec[D], v_vec[D];
-    // ???     cache.load(pos, ???, ???);
-    // ???     scores[pos] = ???;  // Q 和 K 的点积
-    // ??? }
 
     // --- 你的代码 ---
     float *scores = new float[length];
@@ -186,15 +180,6 @@ void paged_attention_decode(const MiniPagedCache &cache,
     //   2. exp(scores[i] - max_score)，求和
     //   3. 归一化 → probs[i]
     //
-    // ??? float max_score = scores[0];
-    // ??? for (...) if (scores[i] > max_score) max_score = scores[i];
-    // ??? float *probs = ???;
-    // ??? float exp_sum = 0;
-    // ??? for (...) {
-    // ???     probs[i] = ???;
-    // ???     exp_sum += ???;
-    // ??? }
-    // ??? for (...) probs[i] /= exp_sum;
 
     // --- 你的代码 ---
 
@@ -217,13 +202,6 @@ void paged_attention_decode(const MiniPagedCache &cache,
     // output = Σ probs[pos] × V[pos]
     // 每个 pos: load V, 乘权重, 累加到 output
     //
-    // ??? memset(output, 0, D * sizeof(float));
-    // ??? for (int pos = 0; pos < length; ++pos) {
-    // ???     float k_vec[D], v_vec[D];
-    // ???     cache.load(pos, ???, ???);
-    // ???     for (int d = 0; d < D; ++d)
-    // ???         output[d] += probs[pos] * v_vec[d];
-    // ??? }
 
     // --- 你的代码 ---
     memset(output, 0, D * sizeof(float));
@@ -238,8 +216,6 @@ void paged_attention_decode(const MiniPagedCache &cache,
     // --- 你的代码结束 ---
 
     // 清理
-    // ??? delete[] scores;
-    // ??? delete[] probs;
 
     // --- 你的代码 ---
     delete[] scores;
@@ -290,12 +266,6 @@ bool test_decode_attention() {
     // TODO 4: 填充 pos=0,1,2 的 K 和 V
     // 提示: 用 float k[D] = {...} 然后 g_cache.store(pos, k, v)
     //
-    // ??? { float k0[4] = {1,0,0,0}, v0[4] = {1,0,0,0};
-    // ???   g_cache.store(0, k0, v0); }
-    // ??? { float k1[4] = {0,1,0,0}, v1[4] = {0,1,0,0};
-    // ???   g_cache.store(1, k1, v1); }
-    // ??? { float k2[4] = {0,0,1,0}, v2[4] = {0,0,1,0};
-    // ???   g_cache.store(2, k2, v2); }
 
     // --- 你的代码 ---
     { float k0[4] = {1,0,0,0}, v0[4] = {1,0,0,0};
@@ -318,7 +288,6 @@ bool test_decode_attention() {
     float output[4];
 
     // TODO 5: 调用 paged_attention_decode
-    // ??? paged_attention_decode(g_cache, query, 3, output);
 
     // --- 你的代码 ---
 
