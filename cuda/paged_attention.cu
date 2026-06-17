@@ -92,8 +92,12 @@ struct BlockTable {
         // ??? *out_offset = ???;
 
         // --- 你的代码 ---
-
-
+        int logical_block = pos / BLOCK_SIZE;
+        int offset_in_block = pos % BLOCK_SIZE ;
+        int physical_block = physical_blocks[logical_block];
+        *out_phys_blk = physical_block ;
+        *out_offset = offset_in_block ;
+       
         // --- 你的代码结束 ---
     }
 };
@@ -176,21 +180,42 @@ public:
         // ================================================================
         // 提示:
         //   1. 找到第一个空闲的 request slot → rid
-        //   2. 扫描 block_free[]，收集 num_blocks 个空闲物理 block
-        //   3. 把这些物理 block 索引填入 tables[rid].physical_blocks[]
-        //   4. 返回 rid
+        //   2. 扫描 block_free[] (0..TOTAL_PHYSICAL_BLOCKS-1)，
+        //      用 found 计数器，遇到空闲 block 就收集
+        //   3. 同时填入 tables[rid].physical_blocks[found] 并标记 block_free[]=false
+        //   4. found == num_blocks 时 break，最后设置 num_blocks 和 active
         //
-        // ??? int rid = ???;  // 找空闲 request slot
-        // ??? for (int b = 0; b < num_blocks; ++b) {
-        // ???     // 找第 b 个空闲物理 block
-        // ??? }
-        // ??? for (int i = 0; i < num_blocks; ++i) {
-        // ???     tables[rid].physical_blocks[i] = ???;
+        // ??? int found = 0;
+        // ??? for (int pb = 0; pb < TOTAL_PHYSICAL_BLOCKS; ++pb) {
+        // ???     if (block_free[pb]) {
+        // ???         tables[rid].physical_blocks[found++] = pb;
+        // ???         block_free[pb] = false;
+        // ???         if (found == num_blocks) break;
+        // ???     }
         // ??? }
 
         // --- 你的代码 ---
-        (void)num_blocks;
-        return -1;  // 占位，你实现后删除这行
+        int rid = 0;
+        while (tables[rid].active != false)
+        {
+            rid++;
+        }
+        
+           int found = 0;                          // 找到了几个
+    
+        for (int pb = 0; pb < TOTAL_PHYSICAL_BLOCKS; ++pb) {
+            if (block_free[pb]) {               // 灯亮，这个柜子空的
+                tables[rid].physical_blocks[found] = pb;   // 记下柜子编号
+                block_free[pb] = false;         // 关灯，标记已占用
+                found++;                         // 找到一个
+    
+            if (found == num_blocks) break;  // 找够了，停
+        }
+    }
+    
+        tables[rid].num_blocks = found;
+        tables[rid].active = true;
+        return rid;
         // --- 你的代码结束 ---
     }
 
@@ -215,12 +240,13 @@ public:
         //       int pb = tables[rid].physical_blocks[i];
         //       block_free[pb] = ???;
         //   }
-        //   tables[rid].init();
-
-        // --- 你的代码 ---
-
-
-        // --- 你的代码结束 ---
+        //   tables[rid].init();   
+       for (int i = 0; i < tables[rid].num_blocks; ++i) {
+              int pb = tables[rid].physical_blocks[i];
+           block_free[pb] = true;
+       }
+           tables[rid].init();
+     
     }
 
     // ---- 存储 ----
@@ -256,8 +282,17 @@ public:
         // ??? float *V_target = ???;
 
         // --- 你的代码 ---
-
-
+        int phys_blk;
+        int offset;
+        tables[rid].translate(pos,&phys_blk,&offset);
+        float *K_target = K_pool + phys_blk * H * BLOCK_SIZE * D
+                             + head   * BLOCK_SIZE * D
+                            + offset * D;
+        memcpy(K_target, k_vec, D * sizeof(float));
+        float *V_target = V_pool + phys_blk * H * BLOCK_SIZE * D
+                             + head   * BLOCK_SIZE * D
+                            + offset * D;
+        memcpy(V_target, v_vec, D * sizeof(float));
         // --- 你的代码结束 ---
     }
 
@@ -286,10 +321,17 @@ public:
         // ??? float *V_src = ???;
         // ??? memcpy(k_out, K_src, D * sizeof(float));
 
-        // --- 你的代码 ---
-
-
-        // --- 你的代码结束 ---
+       int phys_blk;
+        int offset;
+        tables[rid].translate(pos,&phys_blk,&offset);
+        float * K_src = K_pool + phys_blk * H * BLOCK_SIZE * D
+                             + head   * BLOCK_SIZE * D
+                            + offset * D;
+        memcpy(k_out, K_src, D * sizeof(float));
+        float *V_src = V_pool + phys_blk * H * BLOCK_SIZE * D
+                             + head   * BLOCK_SIZE * D
+                            + offset * D;
+        memcpy(v_out, V_src, D * sizeof(float));
     }
 
     // ---- 获取状态 (供测试使用) ----
@@ -329,10 +371,9 @@ bool test_allocate_store_load() {
     // ??? assert(rid >= 0);
 
     int rid = -1;
-    // --- 你的代码 ---
-
-
-    // --- 你的代码结束 ---
+    rid = g_cache.allocate(2);
+    assert(rid >= 0);
+    
     printf("  分配请求: rid=%d, num_blocks=%d\n", rid, g_cache.get_table(rid).num_blocks);
 
     // Step 2: 存储一些 KV
@@ -341,13 +382,13 @@ bool test_allocate_store_load() {
         k_vec[d] = (float)(rid * 100 + d);    // 用 rid 区分，方便验证
         v_vec[d] = (float)(rid * 1000 + d);
     }
-
+    
     // 在 head=0 的 pos=5 处存储
     // TODO 7: 调用 store
     // ??? g_cache.store(rid, 0, 5, k_vec, v_vec);
 
     // --- 你的代码 ---
-
+    g_cache.store(rid, 0, 5, k_vec, v_vec);
     printf("  存储: rid=%d, head=0, pos=5 → K[0..%d] = {", rid, D-1);
     for (int d = 0; d < D && d < 4; ++d) printf("%.0f,", k_vec[d]);
     printf("...}\n");
@@ -361,7 +402,7 @@ bool test_allocate_store_load() {
 
     // --- 你的代码 ---
 
-
+    g_cache.load(rid, 0, 5, k_out, v_out);
     // --- 你的代码结束 ---
 
     // Step 4: 验证存储 = 读取
@@ -377,7 +418,7 @@ bool test_allocate_store_load() {
     // ??? g_cache.free(???);
 
     // --- 你的代码 ---
-
+    g_cache.free(rid);
 
     // --- 你的代码结束 ---
     int free_after = g_cache.count_free_blocks();
@@ -420,8 +461,8 @@ bool test_multi_request() {
         // ??? rid[i] = g_cache.allocate(???);
 
         // --- 你的代码 ---
-
-
+        num_blocks[i] = (lengths[i] + BLOCK_SIZE - 1) / BLOCK_SIZE;;
+        rid[i] = g_cache.allocate(num_blocks[i]);
         // --- 你的代码结束 ---
         assert(rid[i] >= 0);
         printf("  请求 %d: length=%d, %d blocks, rid=%d\n",
@@ -451,8 +492,11 @@ bool test_multi_request() {
         // ??? g_cache.store(rid[i], 0, lengths[i]-1, k_vec, v_vec);
 
         // --- 你的代码 ---
-
-
+        for (int d = 0; d < D; ++d) { 
+            k_vec[d] = (float)(rid[i] * 100 + lengths[i] - 1 + d);    // 用 rid 区分，方便验证
+            v_vec[d] = (float)(rid[i] * 100 + lengths[i] - 1 + d);
+         }
+        g_cache.store(rid[i], 0, lengths[i]-1, k_vec, v_vec);
         // --- 你的代码结束 ---
     }
 
@@ -463,7 +507,8 @@ bool test_multi_request() {
         // TODO 12: 调用 load 并验证
         // ??? g_cache.load(rid[i], 0, lengths[i]-1, k_out, v_out);
         // ??? assert(k_out[0] == expected_k);
-
+        g_cache.load(rid[i], 0, lengths[i]-1, k_out, v_out);
+        assert(k_out[0] == expected_k);
         // --- 你的代码 ---
 
 
@@ -489,7 +534,7 @@ bool test_multi_request() {
         // ??? g_cache.free(???);
 
         // --- 你的代码 ---
-
+        g_cache.free(rid[i]);
 
         // --- 你的代码结束 ---
     }
