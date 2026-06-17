@@ -76,7 +76,7 @@ make -j$(nproc)
 | 天次 | 主题 | 文件 | 关键概念 |
 |------|------|------|----------|
 | Day 1 | KV Cache 碎片分析 | `fragmentation.cu` | 连续 vs 分页浪费对比 (75%→1.6%) |
-| Day 2 | PagedAttention 实现 | `paged_attention.cu` | Block Table, 逻辑→物理翻译, 按需分配 |
-| Day 3 | PagedAttention Attention | TBD | 分页 attention 计算, block 遍历 |
+| Day 2 | PagedAttention 实现 | `paged_attention.cu` | Block Table, 逻辑→物理翻译, 按需分配 | ✅ |
+| Day 3 | PagedAttention Attention | TBD | 分页 attention 计算, block 遍历 | ← 当前 |
 | Day 4 | Continuous Batching | TBD | 请求调度, 动态增删请求 |
 | Day 5 | 端到端推理 | TBD | Prefill+Decode+PagedAttention 集成 |
