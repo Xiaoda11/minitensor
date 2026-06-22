@@ -366,7 +366,7 @@ __global__ void layernorm_welford_kernel(const float *input, float *output,
 // 5. 验证 + 工具函数
 // ============================================================================
 
-bool verify(const float *cpu, const float *gpu, int n, float eps = 1e-3f) {
+static bool verify(const float *cpu, const float *gpu, int n, float eps = 1e-3f) {
     int mismatches = 0;
     float max_err = 0.0f;
     for (int i = 0; i < n; ++i) {

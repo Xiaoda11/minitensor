@@ -111,7 +111,7 @@ __global__ void matmul_naive_kernel(const float *a, const float *b, float *c,
 // 4. 验证函数
 // ============================================================================
 
-bool verify(const float *cpu, const float *gpu, int n, float eps = 1e-2f) {
+static bool verify(const float *cpu, const float *gpu, int n, float eps = 1e-2f) {
     int mismatches = 0;
     for (int i = 0; i < n; ++i) {
         if (std::fabs(cpu[i] - gpu[i]) > eps) {

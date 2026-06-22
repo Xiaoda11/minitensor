@@ -86,7 +86,7 @@ static void matmul_cpu(const float *a, const float *b, float *c,
 // 2. GPU 朴素版本（用于对比）
 // ============================================================================
 
-__global__ void matmul_naive_kernel(const float *a, const float *b, float *c,
+static __global__ void matmul_naive_kernel(const float *a, const float *b, float *c,
                                      int M, int K, int N) {
     int row = blockIdx.y * blockDim.y + threadIdx.y;
     int col = blockIdx.x * blockDim.x + threadIdx.x;
@@ -329,7 +329,7 @@ __global__ void matmul_tiled_unroll_kernel(const float *a, const float *b, float
 // 4. 验证 + 工具函数
 // ============================================================================
 
-bool verify(const float *cpu, const float *gpu, int n, float eps = 5e-2f) {
+static bool verify(const float *cpu, const float *gpu, int n, float eps = 5e-2f) {
     int mismatches = 0;
     float max_err = 0.0f;
     for (int i = 0; i < n; ++i) {
