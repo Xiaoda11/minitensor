@@ -410,6 +410,7 @@ bool verify(const float *cpu, const float *gpu, int n, float eps = 1e-4f) {
 // 7. Main
 // ============================================================================
 
+#ifndef KERNEL_EXPORT
 int main(int argc, char **argv) {
     // ---- 参数 ----
     int rows = (argc > 1) ? atoi(argv[1]) : 4096;
@@ -588,3 +589,4 @@ int main(int argc, char **argv) {
 
     return 0;
 }
+#endif // KERNEL_EXPORT

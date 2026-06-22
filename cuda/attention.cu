@@ -536,6 +536,7 @@ bool verify(const float *cpu, const float *gpu, int n, float eps = 1e-3f) {
 // 5. Main
 // ============================================================================
 
+#ifndef KERNEL_EXPORT
 int main(int argc, char **argv) {
     int S = (argc > 1) ? atoi(argv[1]) : 128;
     int D = (argc > 2) ? atoi(argv[2]) : 64;
@@ -697,3 +698,4 @@ int main(int argc, char **argv) {
 
     return 0;
 }
+#endif // KERNEL_EXPORT

@@ -65,7 +65,7 @@
 /// 为什么更快：内层 j 循环中，C[i][j] 连续访问（行主序），
 /// B[k][j] 也连续访问。A[i][k] 在内层不变，可以放寄存器。
 /// CPU L1 cache 命中率大幅提升。
-void matmul_cpu(const float *a, const float *b, float *c,
+static void matmul_cpu(const float *a, const float *b, float *c,
                 int M, int K, int N) {
     // 先清零 C
     for (int i = 0; i < M * N; ++i) c[i] = 0.0f;
@@ -351,6 +351,7 @@ bool verify(const float *cpu, const float *gpu, int n, float eps = 5e-2f) {
 // 5. Main
 // ============================================================================
 
+#ifndef KERNEL_EXPORT
 int main(int argc, char **argv) {
     // ---- 参数 ----
     int M = (argc > 1) ? atoi(argv[1]) : 1024;
@@ -504,3 +505,4 @@ int main(int argc, char **argv) {
 
     return 0;
 }
+#endif // KERNEL_EXPORT

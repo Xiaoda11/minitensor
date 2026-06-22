@@ -6,6 +6,8 @@
 #include <string>
 #include <vector>
 
+#include "../kernels.h"
+
 #define CUDA_CHECK(expr)                                                       \
     do {                                                                       \
         cudaError_t err = (expr);                                              \
@@ -27,14 +29,27 @@ struct BenchCase {
     void (*launcher)();
 };
 
+// ---- Static device pointers (allocated once, freed at end) ----
+float *d_a, *d_b, *d_c;                    // vector_add
+float *d_A, *d_B, *d_C;                     // matmul
+float *d_input, *d_output;                  // softmax + layernorm
+float *d_Q, *d_K, *d_V, *d_O;              // attention
+
+// ---- Problem sizes ----
+constexpr int VEC_N = 16 * 1024 * 1024;   // 16M
+constexpr int MAT_M = 1024, MAT_N = 1024, MAT_K = 1024;
+constexpr int SOFTMAX_ROWS = 1024, SOFTMAX_COLS = 1024;
+constexpr int LN_ROWS = 1024, LN_COLS = 1024;
+constexpr float LN_EPS = 1e-5f;
+constexpr int ATT_S = 128, ATT_D = 64;
+
 double bandwidth_gbps(size_t bytes, float latency_ms) {
     if (latency_ms <= 0.0f) return 0.0;
     return static_cast<double>(bytes) / (static_cast<double>(latency_ms) * 1e-3) / 1e9;
 }
 
 float measure_ms(const BenchCase& bench) {
-    cudaEvent_t start;
-    cudaEvent_t stop;
+    cudaEvent_t start, stop;
     CUDA_CHECK(cudaEventCreate(&start));
     CUDA_CHECK(cudaEventCreate(&stop));
 
@@ -57,40 +72,89 @@ float measure_ms(const BenchCase& bench) {
     return total_ms / static_cast<float>(bench.measure_iters);
 }
 
+// ===================================================================
+// Launchers
+// ===================================================================
+
 void launch_vector_add() {
-    // TODO: allocate inputs once, call vector_add_kernel or grid-stride variant.
+    constexpr int threads = 256;
+    int blocks = (VEC_N + threads - 1) / threads;
+    vector_add_kernel_grid_stride<<<blocks, threads>>>(d_a, d_b, d_c, VEC_N);
 }
 
 void launch_matmul_naive() {
-    // TODO: call matmul_naive_kernel with M=N=K=1024.
+    dim3 block(16, 16);
+    dim3 grid((MAT_N + 15) / 16, (MAT_M + 15) / 16);
+    matmul_naive_kernel<<<grid, block>>>(d_A, d_B, d_C, MAT_M, MAT_K, MAT_N);
 }
 
 void launch_matmul_tiled() {
-    // TODO: call matmul_tiled_kernel or matmul_tiled_unroll_kernel.
+    dim3 block(16, 16);
+    dim3 grid((MAT_N + 15) / 16, (MAT_M + 15) / 16);
+    matmul_tiled_kernel<<<grid, block>>>(d_A, d_B, d_C, MAT_M, MAT_K, MAT_N);
 }
 
 void launch_softmax() {
-    // TODO: call softmax_naive_kernel / warp reduction variant on [1024, 1024].
+    int num_warps = SOFTMAX_COLS / 32;
+    int smem = num_warps * static_cast<int>(sizeof(float));
+    softmax_warp_reduce_kernel<<<SOFTMAX_ROWS, SOFTMAX_COLS, smem>>>(
+        d_input, d_output, SOFTMAX_ROWS, SOFTMAX_COLS);
 }
 
 void launch_layernorm() {
-    // TODO: call layernorm_naive_kernel / warp reduction / Welford variant.
+    int num_warps = LN_COLS / 32;
+    int smem = num_warps * static_cast<int>(sizeof(WelfordState));
+    layernorm_welford_kernel<<<LN_ROWS, LN_COLS, smem>>>(
+        d_input, d_output, LN_ROWS, LN_COLS, LN_EPS);
 }
 
 void launch_attention() {
-    // TODO: call attention_fused_kernel or v2 with batch=1, seq_len=128, head_dim=64.
+    int block_dim = 256;
+    // smem_v2 = (D + 64*D + 64 + D) * sizeof(float)
+    int smem = static_cast<int>((ATT_D + 64 * ATT_D + 64 + ATT_D) * sizeof(float));
+    attention_fused_kernel_v2<<<ATT_S, block_dim, smem>>>(
+        d_Q, d_K, d_V, d_O, ATT_S, ATT_D);
 }
 
 }  // namespace
 
 int main() {
+    // ---- Allocate device memory ----
+    size_t vec_bytes = static_cast<size_t>(VEC_N) * sizeof(float);
+    CUDA_CHECK(cudaMalloc(&d_a, vec_bytes));
+    CUDA_CHECK(cudaMalloc(&d_b, vec_bytes));
+    CUDA_CHECK(cudaMalloc(&d_c, vec_bytes));
+
+    size_t mat_bytes = static_cast<size_t>(MAT_M) * MAT_K * sizeof(float);
+    size_t mat_out_bytes = static_cast<size_t>(MAT_M) * MAT_N * sizeof(float);
+    CUDA_CHECK(cudaMalloc(&d_A, mat_bytes));
+    CUDA_CHECK(cudaMalloc(&d_B, mat_bytes));
+    CUDA_CHECK(cudaMalloc(&d_C, mat_out_bytes));
+
+    size_t sm_bytes = static_cast<size_t>(SOFTMAX_ROWS) * SOFTMAX_COLS * sizeof(float);
+    CUDA_CHECK(cudaMalloc(&d_input, sm_bytes));
+    CUDA_CHECK(cudaMalloc(&d_output, sm_bytes));
+
+    size_t att_qkv_bytes = static_cast<size_t>(ATT_S) * ATT_D * sizeof(float);
+    CUDA_CHECK(cudaMalloc(&d_Q, att_qkv_bytes));
+    CUDA_CHECK(cudaMalloc(&d_K, att_qkv_bytes));
+    CUDA_CHECK(cudaMalloc(&d_V, att_qkv_bytes));
+    CUDA_CHECK(cudaMalloc(&d_O, att_qkv_bytes));
+
+    // ---- Benchmark suite ----
     const std::vector<BenchCase> benches{
-        {"vector_add", "[16M]", 16ull * 1024 * 1024 * sizeof(float) * 3, 10, 100, launch_vector_add},
-        {"matmul_naive", "[1024x1024]x[1024x1024]", 3ull * 1024 * 1024 * sizeof(float), 3, 20, launch_matmul_naive},
-        {"matmul_tiled", "[1024x1024]x[1024x1024]", 3ull * 1024 * 1024 * sizeof(float), 3, 20, launch_matmul_tiled},
-        {"softmax", "[1024x1024]", 2ull * 1024 * 1024 * sizeof(float), 10, 100, launch_softmax},
-        {"layernorm", "[1024x1024]", 2ull * 1024 * 1024 * sizeof(float), 10, 100, launch_layernorm},
-        {"attention", "[B=1,H=1,S=128,D=64]", 4ull * 128 * 64 * sizeof(float), 10, 100, launch_attention},
+        {"vector_add", "[16M]",
+         16ull * 1024 * 1024 * sizeof(float) * 3, 10, 100, launch_vector_add},
+        {"matmul_naive", "[1024x1024]x[1024x1024]",
+         3ull * 1024 * 1024 * sizeof(float), 3, 20, launch_matmul_naive},
+        {"matmul_tiled", "[1024x1024]x[1024x1024]",
+         3ull * 1024 * 1024 * sizeof(float), 3, 20, launch_matmul_tiled},
+        {"softmax", "[1024x1024]",
+         2ull * 1024 * 1024 * sizeof(float), 10, 100, launch_softmax},
+        {"layernorm", "[1024x1024]",
+         2ull * 1024 * 1024 * sizeof(float), 10, 100, launch_layernorm},
+        {"attention", "[B=1,H=1,S=128,D=64]",
+         4ull * 128 * 64 * sizeof(float), 10, 100, launch_attention},
     };
 
     std::puts("| Device | Op | Shape | Latency (us) | Bandwidth (GB/s) | Bottleneck |");
@@ -101,6 +165,13 @@ int main() {
         std::printf("| CUDA | %s | %s | %.2f | %.2f | TODO |\n",
                     bench.op.c_str(), bench.shape.c_str(), ms * 1000.0f, gbps);
     }
+
+    // ---- Cleanup ----
+    CUDA_CHECK(cudaFree(d_a)); CUDA_CHECK(cudaFree(d_b)); CUDA_CHECK(cudaFree(d_c));
+    CUDA_CHECK(cudaFree(d_A)); CUDA_CHECK(cudaFree(d_B)); CUDA_CHECK(cudaFree(d_C));
+    CUDA_CHECK(cudaFree(d_input)); CUDA_CHECK(cudaFree(d_output));
+    CUDA_CHECK(cudaFree(d_Q)); CUDA_CHECK(cudaFree(d_K)); CUDA_CHECK(cudaFree(d_V));
+    CUDA_CHECK(cudaFree(d_O));
 
     return 0;
 }

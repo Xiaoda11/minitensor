@@ -102,6 +102,7 @@ __global__ void vector_add_kernel_grid_stride(const float *a, const float *b,
 // 5. Test harness
 // ============================================================================
 
+#ifndef KERNEL_EXPORT
 int main(int argc, char **argv) {
     // --- Parse arguments ---
     int n = (argc > 1) ? std::atoi(argv[1]) : 1 << 24;       // default: 16M elements
@@ -208,3 +209,4 @@ int main(int argc, char **argv) {
 
     return pass ? 0 : 1;
 }
+#endif // KERNEL_EXPORT

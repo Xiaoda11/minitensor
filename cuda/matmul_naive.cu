@@ -53,7 +53,7 @@
 ///
 /// O(M*K*N) 标准实现。CPU 因为 Cache 自动工作，
 /// 对中等尺寸矩阵（M,K,N ~ 1K）性能还不错。
-void matmul_cpu(const float *a, const float *b, float *c,
+static void matmul_cpu(const float *a, const float *b, float *c,
                 int M, int K, int N) {
     for (int i = 0; i < M; ++i) {
         for (int j = 0; j < N; ++j) {
@@ -133,6 +133,7 @@ bool verify(const float *cpu, const float *gpu, int n, float eps = 1e-2f) {
 // 5. Main
 // ============================================================================
 
+#ifndef KERNEL_EXPORT
 int main(int argc, char **argv) {
     // ---- 参数 ----
     int M = (argc > 1) ? atoi(argv[1]) : 1024;
@@ -254,3 +255,4 @@ int main(int argc, char **argv) {
 
     return 0;
 }
+#endif // KERNEL_EXPORT
