@@ -27,3 +27,10 @@ target_link_libraries(minitensor PRIVATE libtensor)
 add_executable(minitensor_cpu_benchmark benchmark.cpp)
 target_link_libraries(minitensor_cpu_benchmark PRIVATE libtensor)
 target_compile_options(minitensor_cpu_benchmark PRIVATE -O3)
+
+# ---- Inference benchmark (prefill vs decode latency) ----
+add_executable(minitensor_cpu_inference_benchmark inference_benchmark.cpp)
+target_link_libraries(minitensor_cpu_inference_benchmark PRIVATE libtensor)
+target_include_directories(minitensor_cpu_inference_benchmark PRIVATE
+    ${CMAKE_SOURCE_DIR})   # for cuda/kv_cache.h
+target_compile_options(minitensor_cpu_inference_benchmark PRIVATE -O3)

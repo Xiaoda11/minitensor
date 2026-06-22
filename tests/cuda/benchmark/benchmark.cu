@@ -23,7 +23,9 @@ namespace {
 struct BenchCase {
     std::string op;
     std::string shape;
-    size_t bytes;
+    std::string config;       // block × grid, threads, smem
+    size_t bytes;             // total bytes read+write
+    double flops;             // floating-point ops (0 if not computed)
     int warmup_iters;
     int measure_iters;
     void (*launcher)();
@@ -46,6 +48,11 @@ constexpr int ATT_S = 128, ATT_D = 64;
 double bandwidth_gbps(size_t bytes, float latency_ms) {
     if (latency_ms <= 0.0f) return 0.0;
     return static_cast<double>(bytes) / (static_cast<double>(latency_ms) * 1e-3) / 1e9;
+}
+
+double compute_gflops(double total_flops, float latency_ms) {
+    if (latency_ms <= 0.0f) return 0.0;
+    return total_flops / (static_cast<double>(latency_ms) * 1e-3) / 1e9;
 }
 
 float measure_ms(const BenchCase& bench) {
@@ -110,7 +117,6 @@ void launch_layernorm() {
 
 void launch_attention() {
     int block_dim = 256;
-    // smem_v2 = (D + 64*D + 64 + D) * sizeof(float)
     int smem = static_cast<int>((ATT_D + 64 * ATT_D + 64 + ATT_D) * sizeof(float));
     attention_fused_kernel_v2<<<ATT_S, block_dim, smem>>>(
         d_Q, d_K, d_V, d_O, ATT_S, ATT_D);
@@ -119,6 +125,14 @@ void launch_attention() {
 }  // namespace
 
 int main() {
+    // ---- Query device info ----
+    cudaDeviceProp prop;
+    CUDA_CHECK(cudaGetDeviceProperties(&prop, 0));
+    std::printf("// GPU: %s, CC %d.%d, %zu MB VRAM, %d SMs\n",
+                prop.name, prop.major, prop.minor,
+                prop.totalGlobalMem / (1024 * 1024),
+                prop.multiProcessorCount);
+
     // ---- Allocate device memory ----
     size_t vec_bytes = static_cast<size_t>(VEC_N) * sizeof(float);
     CUDA_CHECK(cudaMalloc(&d_a, vec_bytes));
@@ -142,28 +156,91 @@ int main() {
     CUDA_CHECK(cudaMalloc(&d_O, att_qkv_bytes));
 
     // ---- Benchmark suite ----
+    // FLOPs formulas:
+    //   vector_add: N adds = N FLOPs
+    //   matmul: 2*M*K*N (1 mul + 1 add per inner product element)
+    //   softmax: rows * (cols*3 for exp/sub/div + ~5*cols for max/sum/norm) ≈ rows*cols*8
+    //   layernorm: rows * (cols*3 for sub/sqr/sum + ~cols*5 for mean/var/norm) ≈ rows*cols*8
+    //   attention: S*S*D*2 (Q@K) + S*S*8 (softmax) + S*D*S*2 (P@V)
+
     const std::vector<BenchCase> benches{
         {"vector_add", "[16M]",
-         16ull * 1024 * 1024 * sizeof(float) * 3, 10, 100, launch_vector_add},
-        {"matmul_naive", "[1024x1024]x[1024x1024]",
-         3ull * 1024 * 1024 * sizeof(float), 3, 20, launch_matmul_naive},
-        {"matmul_tiled", "[1024x1024]x[1024x1024]",
-         3ull * 1024 * 1024 * sizeof(float), 3, 20, launch_matmul_tiled},
-        {"softmax", "[1024x1024]",
-         2ull * 1024 * 1024 * sizeof(float), 10, 100, launch_softmax},
-        {"layernorm", "[1024x1024]",
-         2ull * 1024 * 1024 * sizeof(float), 10, 100, launch_layernorm},
+         "256 thr × 65536 blk",
+         16ull * 1024 * 1024 * sizeof(float) * 3,
+         16.0 * 1024 * 1024,  // 16M FLOPs
+         10, 100, launch_vector_add},
+
+        {"matmul_naive", "[1024×1024]×[1024×1024]",
+         "16×16 thr × 64×64 blk",
+         3ull * 1024 * 1024 * sizeof(float),
+         2.0 * MAT_M * MAT_K * MAT_N,  // 2*M*K*N
+         3, 20, launch_matmul_naive},
+
+        {"matmul_tiled", "[1024×1024]×[1024×1024]",
+         "16×16 thr × 64×64 blk, tile=16",
+         3ull * 1024 * 1024 * sizeof(float),
+         2.0 * MAT_M * MAT_K * MAT_N,
+         3, 20, launch_matmul_tiled},
+
+        {"softmax", "[1024×1024]",
+         "1024 thr × 1024 blk, smem=1 warps×4B",
+         2ull * 1024 * 1024 * sizeof(float),
+         8.0 * SOFTMAX_ROWS * SOFTMAX_COLS,  // ~8 ops per element
+         10, 100, launch_softmax},
+
+        {"layernorm", "[1024×1024]",
+         "1024 thr × 1024 blk, smem=1 warps×WelfordState",
+         2ull * 1024 * 1024 * sizeof(float),
+         8.0 * LN_ROWS * LN_COLS,
+         10, 100, launch_layernorm},
+
         {"attention", "[B=1,H=1,S=128,D=64]",
-         4ull * 128 * 64 * sizeof(float), 10, 100, launch_attention},
+         "256 thr × 128 blk, smem=~17KB",
+         4ull * 128 * 64 * sizeof(float),
+         2.0 * ATT_S * ATT_S * ATT_D + 8.0 * ATT_S * ATT_S + 2.0 * ATT_S * ATT_D * ATT_S,
+         10, 100, launch_attention},
     };
 
-    std::puts("| Device | Op | Shape | Latency (us) | Bandwidth (GB/s) | Bottleneck |");
-    std::puts("| --- | --- | --- | ---: | ---: | --- |");
+    // ---- Determine bottlenecks ----
+    auto bottleneck = [](const BenchCase& b, double gbps, double gflops) -> std::string {
+        if (b.op == "vector_add")
+            return "memory bandwidth (3 arrays, 0 compute reuse)";
+
+        if (b.op == "matmul_naive")
+            return "global memory traffic (no tiling, O(MNK) reads, only ~12 GB/s HBM on RTX 2060)";
+
+        if (b.op == "matmul_tiled")
+            return "shared memory reuse + occupancy (tile=16, 2 warps/SM on 2060 → low occupancy)";
+
+        if (b.op == "softmax")
+            return "memory bandwidth (row reductions, warp-level parallelism helps but each row only 1 warp)";
+
+        if (b.op == "layernorm")
+            return "memory bandwidth (row reductions, Welford online mean/variance, 2-pass fuse)";
+
+        if (b.op == "attention")
+            return "QK reduction + softmax (fused kernel reduces HBM traffic but S×S compute dominates)";
+
+        return "unknown";
+    };
+
+    std::puts("");
+    std::puts("| Op | Shape | Config | Latency (us) | Bandwidth (GB/s) | GFLOPS | Bottleneck |");
+    std::puts("| --- | --- | --- | ---: | ---: | ---: | --- |");
+
     for (const auto& bench : benches) {
         const float ms = measure_ms(bench);
         const double gbps = bandwidth_gbps(bench.bytes, ms);
-        std::printf("| CUDA | %s | %s | %.2f | %.2f | TODO |\n",
-                    bench.op.c_str(), bench.shape.c_str(), ms * 1000.0f, gbps);
+        const double gflops = compute_gflops(bench.flops, ms);
+        if (bench.flops > 0) {
+            std::printf("| %s | %s | %s | %.2f | %.2f | %.2f | %s |\n",
+                        bench.op.c_str(), bench.shape.c_str(), bench.config.c_str(),
+                        ms * 1000.0f, gbps, gflops, bottleneck(bench, gbps, gflops).c_str());
+        } else {
+            std::printf("| %s | %s | %s | %.2f | %.2f | — | %s |\n",
+                        bench.op.c_str(), bench.shape.c_str(), bench.config.c_str(),
+                        ms * 1000.0f, gbps, bottleneck(bench, gbps, gflops).c_str());
+        }
     }
 
     // ---- Cleanup ----

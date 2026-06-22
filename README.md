@@ -54,7 +54,36 @@ nvcc -O2 vector_add.cu -o vector_add && ./vector_add
 | v0.3 | 计算图引擎 + 2 层 MLP 推理 | ✓ |
 | v0.4 | CUDA Kernel 重写 | ✓ |
 | v0.5 | KV Cache + Prefill/Decode/Generate (Phase 2 完成) | ✓ |
-| v0.6 | PagedAttention + 分页 KV Cache (Phase 3 进行中) | ~ |
+| v0.6 | PagedAttention + Continuous Batching (Phase 3 完成) | ✓ |
+| v0.7 | 面试准备: Benchmark 数据采集 (Phase 4 Week 1) | ~ |
+
+## 构建
+
+### CPU (CMake)
+
+```bash
+mkdir -p build && cd build
+cmake .. -DCMAKE_BUILD_TYPE=Release && make -j$(nproc)
+
+# 47 个单元测试
+./cpu/minitensor
+
+# 基础算子 benchmark
+./cpu/minitensor_cpu_benchmark
+
+# Prefill vs Decode 延迟对比
+./cpu/minitensor_cpu_inference_benchmark
+```
+
+### CUDA (仅 WSL2, 需要 nvcc + GPU)
+
+```bash
+cd tests/cuda && mkdir -p build && cd build
+cmake .. && make -j$(nproc) cuda_kernel_benchmark
+./benchmark/cuda_kernel_benchmark
+```
+
+Benchmark 结果详见 [docs/benchmarks.md](docs/benchmarks.md)
 
 ## 技术栈
 
