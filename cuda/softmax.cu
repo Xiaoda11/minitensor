@@ -388,7 +388,7 @@ __global__ void softmax_single_warp_kernel(const float *input, float *output,
 // 6. 验证 + 工具函数
 // ============================================================================
 
-bool verify(const float *cpu, const float *gpu, int n, float eps = 1e-4f) {
+static bool verify(const float *cpu, const float *gpu, int n, float eps = 1e-4f) {
     int mismatches = 0;
     float max_err = 0.0f;
     for (int i = 0; i < n; ++i) {
