@@ -49,6 +49,7 @@
 // 2. CPU baseline — 标准三重循环 matmul
 // ============================================================================
 
+#ifndef KERNEL_EXPORT
 /// @brief CPU 矩阵乘法: C[M×N] = A[M×K] × B[K×N]
 ///
 /// O(M*K*N) 标准实现。CPU 因为 Cache 自动工作，
@@ -65,6 +66,7 @@ static void matmul_cpu(const float *a, const float *b, float *c,
         }
     }
 }
+#endif // KERNEL_EXPORT
 
 // ============================================================================
 // 3. GPU kernel: 朴素 matmul — 每个线程算输出矩阵的一个元素
@@ -107,6 +109,7 @@ __global__ void matmul_naive_kernel(const float *a, const float *b, float *c,
     c[row * N + col] = sum;
 }
 
+#ifndef KERNEL_EXPORT
 // ============================================================================
 // 4. 验证函数
 // ============================================================================
@@ -128,6 +131,7 @@ static bool verify(const float *cpu, const float *gpu, int n, float eps = 1e-2f)
     }
     return true;
 }
+#endif // KERNEL_EXPORT
 
 // ============================================================================
 // 5. Main

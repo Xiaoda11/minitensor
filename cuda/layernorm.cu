@@ -362,6 +362,7 @@ __global__ void layernorm_welford_kernel(const float *input, float *output,
     }
 }
 
+#ifndef KERNEL_EXPORT
 // ============================================================================
 // 5. 验证 + 工具函数
 // ============================================================================
@@ -383,6 +384,7 @@ static bool verify(const float *cpu, const float *gpu, int n, float eps = 1e-3f)
     fprintf(stderr, "  Max error: %e\n", max_err);
     return mismatches == 0;
 }
+#endif // KERNEL_EXPORT
 
 // ============================================================================
 // 6. Main

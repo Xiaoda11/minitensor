@@ -55,6 +55,7 @@
 // 1. CPU baseline — 同上一个文件，这里用 i-k-j 顺序（更快）
 // ============================================================================
 
+#ifndef KERNEL_EXPORT
 /// @brief CPU 矩阵乘法（i-k-j 循环顺序，cache 友好）
 ///
 /// 与 naive 版本的 i-j-k 不同，这里把 k 提到中层：
@@ -81,7 +82,9 @@ static void matmul_cpu(const float *a, const float *b, float *c,
         }
     }
 }
+#endif // KERNEL_EXPORT
 
+#ifndef KERNEL_EXPORT
 // ============================================================================
 // 2. GPU 朴素版本（用于对比）
 // ============================================================================
@@ -99,6 +102,7 @@ static __global__ void matmul_naive_kernel(const float *a, const float *b, float
     }
     c[row * N + col] = sum;
 }
+#endif // KERNEL_EXPORT
 
 // ============================================================================
 // 3. GPU Tiled 版本 — 核心！
@@ -325,6 +329,7 @@ __global__ void matmul_tiled_unroll_kernel(const float *a, const float *b, float
     }
 }
 
+#ifndef KERNEL_EXPORT
 // ============================================================================
 // 4. 验证 + 工具函数
 // ============================================================================
@@ -346,6 +351,7 @@ static bool verify(const float *cpu, const float *gpu, int n, float eps = 5e-2f)
     fprintf(stderr, "  Max error: %e\n", max_err);
     return mismatches == 0;
 }
+#endif // KERNEL_EXPORT
 
 // ============================================================================
 // 5. Main

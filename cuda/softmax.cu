@@ -384,6 +384,7 @@ __global__ void softmax_single_warp_kernel(const float *input, float *output,
     }
 }
 
+#ifndef KERNEL_EXPORT
 // ============================================================================
 // 6. 验证 + 工具函数
 // ============================================================================
@@ -405,6 +406,7 @@ static bool verify(const float *cpu, const float *gpu, int n, float eps = 1e-4f)
     fprintf(stderr, "  Max error: %e\n", max_err);
     return mismatches == 0;
 }
+#endif // KERNEL_EXPORT
 
 // ============================================================================
 // 7. Main
