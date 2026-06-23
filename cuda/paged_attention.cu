@@ -134,6 +134,50 @@ private:
         return H * BLOCK_SIZE * D * sizeof(float);
     }
 
+    // ---- LRU 缓存回收队列 ----
+    // 模拟 vLLM block_pool 中"满 block 不立即回收，留在缓存等前缀命中"
+    bool block_cached[TOTAL_PHYSICAL_BLOCKS];     // block 是否有完整数据值得缓存
+    int cached_queue[TOTAL_PHYSICAL_BLOCKS];       // 环形队列，head=LRU, tail=MRU
+    int cached_head, cached_tail, cached_count;    // 队列索引和计数
+
+    // 队尾入队（表示这个 block 最近被使用/缓存）
+    void cached_queue_push(int block_id) {
+        if (cached_count >= TOTAL_PHYSICAL_BLOCKS) return;
+        cached_queue[cached_tail] = block_id;
+        cached_tail = (cached_tail + 1) % TOTAL_PHYSICAL_BLOCKS;
+        cached_count++;
+    }
+
+    // 队头出队（返回最久未使用的 block）
+    int cached_queue_pop() {
+        if (cached_count <= 0) return -1;
+        int block_id = cached_queue[cached_head];
+        cached_head = (cached_head + 1) % TOTAL_PHYSICAL_BLOCKS;
+        cached_count--;
+        return block_id;
+    }
+
+    // 命中后将 block_id 移到队尾（变为 MRU）
+    void cached_queue_move_to_back(int block_id) {
+        if (cached_count <= 1) return;
+        for (int i = 0; i < cached_count; ++i) {
+            int idx = (cached_head + i) % TOTAL_PHYSICAL_BLOCKS;
+            if (cached_queue[idx] == block_id) {
+                if (i == cached_count - 1) return;  // 已在队尾
+                // 移除：将后面元素前移
+                for (int j = i; j < cached_count - 1; ++j) {
+                    int src = (cached_head + j + 1) % TOTAL_PHYSICAL_BLOCKS;
+                    int dst = (cached_head + j) % TOTAL_PHYSICAL_BLOCKS;
+                    cached_queue[dst] = cached_queue[src];
+                }
+                // 放到队尾
+                int tail_pos = (cached_head + cached_count - 1) % TOTAL_PHYSICAL_BLOCKS;
+                cached_queue[tail_pos] = block_id;
+                return;
+            }
+        }
+    }
+
 public:
     void init() {
         // 分配物理池
@@ -145,6 +189,14 @@ public:
         for (int i = 0; i < TOTAL_PHYSICAL_BLOCKS; ++i) {
             block_free[i] = true;   // 所有 block 初始空闲
         }
+
+        // 初始化 LRU 缓存队列
+        for (int i = 0; i < TOTAL_PHYSICAL_BLOCKS; ++i) {
+            block_cached[i] = false;
+        }
+        cached_head = 0;
+        cached_tail = 0;
+        cached_count = 0;
 
         // 初始化所有请求的 block table
         for (int i = 0; i < MAX_REQUESTS; ++i) {
@@ -173,7 +225,7 @@ public:
      */
     int allocate(int num_blocks) {
         // ================================================================
-        // TODO 2: 实现 block 分配
+        // TODO 2: 实现 block 分配 (含 LRU 缓存回收)
         // ================================================================
         // 提示:
         //   1. 找到第一个空闲的 request slot → rid
@@ -181,6 +233,7 @@ public:
         //      用 found 计数器，遇到空闲 block 就收集
         //   3. 同时填入 tables[rid].physical_blocks[found] 并标记 block_free[]=false
         //   4. found == num_blocks 时 break，最后设置 num_blocks 和 active
+        //   5. 如果空闲 block 不够，从缓存队列 (LRU) 中回收
         //
 
         // --- 你的代码 ---
@@ -201,6 +254,17 @@ public:
             if (found == num_blocks) break;  // 找够了，停
         }
     }
+
+        // 如果空闲 block 不够，从 LRU 缓存队列中回收
+        if (found < num_blocks) {
+            while (found < num_blocks && cached_count > 0) {
+                int pb = cached_queue_pop();          // 弹出最久未使用的
+                block_cached[pb] = false;             // 清除缓存标记
+                block_free[pb] = false;               // 标记为已分配
+                tables[rid].physical_blocks[found] = pb;
+                found++;
+            }
+        }
     
         tables[rid].num_blocks = found;
         tables[rid].active = true;
@@ -222,17 +286,24 @@ public:
      */
     void free(int rid) {
         // ================================================================
-        // TODO 3: 实现 block 释放
+        // TODO 3: 实现 block 释放 (含缓存逻辑)
         // ================================================================
         // 提示:
         //   for (int i = 0; i < tables[rid].num_blocks; ++i) {
         //       int pb = tables[rid].physical_blocks[i];
-        //       block_free[pb] = ???;
+        //       如果 block_cached[pb] → 放入缓存队列 (不归还 free list)
+        //       否则 → block_free[pb] = true (归还 free list)
         //   }
         //   tables[rid].init();   
        for (int i = 0; i < tables[rid].num_blocks; ++i) {
               int pb = tables[rid].physical_blocks[i];
-           block_free[pb] = true;
+           if (block_cached[pb]) {
+               // 有缓存价值的 block → 放入 LRU 队列，不归还 free list
+               cached_queue_push(pb);
+           } else {
+               // 无缓存价值 → 直接归还 free list
+               block_free[pb] = true;
+           }
        }
            tables[rid].init();
      
@@ -278,6 +349,11 @@ public:
                              + head   * BLOCK_SIZE * D
                             + offset * D;
         memcpy(V_target, v_vec, D * sizeof(float));
+
+        // 如果写入的是 block 最后一个位置 → 标记为有完整缓存价值
+        if (offset == BLOCK_SIZE - 1) {
+            block_cached[phys_blk] = true;
+        }
         // --- 你的代码结束 ---
     }
 
@@ -323,7 +399,22 @@ public:
         for (int i = 0; i < TOTAL_PHYSICAL_BLOCKS; ++i) {
             if (block_free[i]) count++;
         }
+        count += cached_count;  // 缓存队列中的 block 也可被分配
         return count;
+    }
+
+    int count_cached_blocks() const {
+        return cached_count;
+    }
+
+    /** 
+     * @brief 模拟 prefix cache hit：将缓存中的 block 移到 LRU 队尾
+     *
+     * 对应 vLLM 中 hash 命中后把 block 移到 free_block_queue 末尾，
+     * 使其不容易被 evict。
+     */
+    void touch_block(int block_id) {
+        cached_queue_move_to_back(block_id);
     }
 };
 
@@ -497,15 +588,74 @@ bool test_multi_request() {
     printf("  连续方案 (S_max=%d): 分配=%d, 浪费=%.1f%%\n",
            48, 3 * 48, 100.0f * (3 * 48 - total_used) / (3 * 48));
 
-    // Step 5: 释放所有请求
-    for (int i = 0; i < 3; ++i) {
-        // TODO 13: 释放请求
+    // Step 4.5: LRU 缓存回收验证
+    printf("\n  --- LRU 缓存回收验证 ---\n");
 
-        // --- 你的代码 ---
-        g_cache.free(rid[i]);
-
-        // --- 你的代码结束 ---
+    // 往 block 末尾位置写入，触发 block_cached 标记
+    // Request 0: 3 blocks → 往 block 0 末尾 (pos=15) 和 block 1 末尾 (pos=31) 写入
+    // Request 1: 2 blocks → 往 block 0 末尾 (pos=15) 写入
+    {
+        float k_vec[D], v_vec[D];
+        for (int d = 0; d < D; ++d) {
+            k_vec[d] = 42.0f + d;
+            v_vec[d] = 420.0f + d;
+        }
+        g_cache.store(rid[0], 0, 15, k_vec, v_vec);   // block 0 末尾 → cached
+        g_cache.store(rid[0], 0, 31, k_vec, v_vec);   // block 1 末尾 → cached
+        g_cache.store(rid[1], 0, 15, k_vec, v_vec);   // block 0 末尾 → cached
     }
+
+    int free_now = g_cache.count_free_blocks();
+    printf("  分配 6 blocks 后: count_free_blocks = %d (含缓存)\n", free_now);
+    assert(free_now == TOTAL_PHYSICAL_BLOCKS - 6);  // 32 - 6 = 26
+
+    // 记录将被缓存的 block（用于 touch 验证）
+    int rid0_blk0 = g_cache.get_table(rid[0]).physical_blocks[0];
+    int rid0_blk1 = g_cache.get_table(rid[0]).physical_blocks[1];
+
+    // 释放请求 0 和请求 1 → 满 block 进入缓存队列，非满 block 归还 free list
+    g_cache.free(rid[0]);
+    g_cache.free(rid[1]);
+
+    int cached = g_cache.count_cached_blocks();
+    printf("  释放请求 0,1 后: cached blocks = %d\n", cached);
+    assert(cached >= 2);  // rid[0] 有 2 个满 block + rid[1] 有 1 个满 block
+
+    // touch_block 验证：将缓存中 block0 移到队尾 (模拟 prefix cache hit)
+    g_cache.touch_block(rid0_blk0);
+    printf("  touch_block(%d) → 移到队尾 (MRU)\n", rid0_blk0);
+    // 再 touch block1，验证多次 touch 正常
+    g_cache.touch_block(rid0_blk1);
+    printf("  touch_block(%d) → 移到队尾 (MRU)\n", rid0_blk1);
+
+    // 释放请求 2
+    g_cache.free(rid[2]);
+
+    // 此时: block_free ≈ 29, cached = 3
+    // 要测试 LRU 回收，需先用完 free list 再分配
+    // 分配 7 个请求各 4 blocks = 28 blocks，耗尽 free list
+    int temp_rid[8];
+    for (int i = 0; i < 7; ++i) {
+        temp_rid[i] = g_cache.allocate(4);
+        assert(temp_rid[i] >= 0);
+    }
+    int cached_before = g_cache.count_cached_blocks();
+    printf("  分配 7×4 blocks 后: free list 基本耗尽, cached = %d\n", cached_before);
+
+    // 再分配 2 blocks → free list 不够，从缓存回收
+    temp_rid[7] = g_cache.allocate(2);
+    assert(temp_rid[7] >= 0);
+    int cached_after = g_cache.count_cached_blocks();
+    printf("  再分配 2 blocks: cached %d → %d (LRU 回收了 %d)\n",
+           cached_before, cached_after, cached_before - cached_after);
+    assert(cached_after < cached_before);  // 至少回收了 1 个
+
+    // 清理临时请求
+    for (int i = 0; i < 8; ++i) {
+        g_cache.free(temp_rid[i]);
+    }
+
+    printf("  ✓ LRU 缓存回收验证通过\n");
 
     return true;
 }

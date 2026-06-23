@@ -215,3 +215,23 @@ smsp__average_warps_issue_stalled_long_scoreboard_per_issue_active.ratio,\
 l1tex__throughput.avg.pct_of_peak_sustained_elapsed \
   ./benchmark/cuda_kernel_benchmark
 ```
+
+### Automated Profiling with minitensor-perf
+
+The manual ncu workflow above is automated by `tests/cuda/perf/` — a Python profiling
+framework that wraps ncu, classifies bottlenecks, computes arithmetic intensity, and
+generates roofline plots.
+
+```bash
+cd tests/cuda/perf
+
+# Profile all kernels in the benchmark binary (auto-discovery)
+python3 main.py --bin ../build_cuda/benchmark/cuda_kernel_benchmark --auto --sudo
+
+# Full analysis: profile + roofline + JSON export
+python3 main.py --bin ../build_cuda/benchmark/cuda_kernel_benchmark --auto \
+    --sudo --roofline roofline.png --output report.json
+```
+
+See `tests/cuda/perf/README.md` for full documentation on bottleneck classification
+rules, FLOP estimation formulas, and GPU specs database.
