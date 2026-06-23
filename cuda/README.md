@@ -30,10 +30,71 @@ cuda/
 # 单文件编译（快速验证）
 nvcc -O2 vector_add.cu -o vector_add && ./vector_add
 
-# CMake 构建（多文件）
-mkdir build && cd build
-cmake .. -DCMAKE_CUDA_ARCHITECTURES="75"   # 根据你的 GPU 调整
+# CMake 构建（benchmark binary，用于 profiling）
+cd tests/cuda && mkdir -p build && cd build
+cmake .. -DCMAKE_CUDA_ARCHITECTURES="75"
 make -j$(nproc)
+# binary: ./benchmark/cuda_kernel_benchmark
+```
+
+## GPU Profiling — Nsight Compute 三刀流
+
+> 方法论：先看 SM% 判断有没有问题，再看 Top 1 Stall 判断问题在哪，最后查表找药方。
+
+### 第一刀：SpeedOfLight（10 秒）
+
+```bash
+sudo $(which ncu) --kernel-name <kernel名> --launch-count 1 \
+  --section SpeedOfLight ./tests/cuda/build/benchmark/cuda_kernel_benchmark
+```
+
+看 `Compute (SM) Throughput` 和 `DRAM Throughput`。
+
+### 第二刀：Top 3 Stalls（30 秒）
+
+```bash
+sudo $(which ncu) --kernel-name <kernel名> --launch-count 1 \
+  --metrics sm__throughput...,smsp__warps_active...,\
+smsp__average_warps_issue_stalled_long_scoreboard...,\
+smsp__average_warps_issue_stalled_short_scoreboard...,\
+smsp__average_warps_issue_stalled_wait...,\
+smsp__average_warps_issue_stalled_barrier...,\
+smsp__average_warps_issue_stalled_math_pipe_throttle...,\
+smsp__average_warps_issue_stalled_not_selected...,\
+smsp__average_warps_issue_stalled_membar...,\
+smsp__average_warps_issue_stalled_dispatch_stall...,\
+smsp__average_warps_issue_stalled_other... \
+  binary
+```
+
+排序最大的 3 个。
+
+### 第三刀：分类 + 药方
+
+| Top 1 Stall | 瓶颈 | 药方 |
+|-------------|------|------|
+| Long Scoreboard | 等全局内存 | tiling / shared memory / 合并访存 |
+| Barrier | 等同步 | 减少 reduce 串行步骤 / 提 occupancy |
+| Short Scoreboard | 等 shared mem/L1 | 解决 bank conflict / float4 宽 load |
+| Wait | SFU 延迟 | 砍依赖链 / 减少 exp/div/sqrt |
+| Not Selected | occupancy 不够 | 减寄存器/SMEM 用量 |
+| Math Pipe Throttle | ALU 饱和 | 考虑混合精度 |
+
+### 已 Profile 的 Kernel（RTX 2060, CC 7.5）
+
+| Kernel | SM% | Warp% | Top 1 Stall | 类型 |
+|--------|-----|-------|-------------|------|
+| matmul_naive | 97.46 | 97.88 | Long Scoreboard 10.92 | 内存瓶颈 |
+| matmul_tiled | 96.41 | 97.84 | Long Scoreboard 8.12 | 内存换同步 |
+| softmax_warp_reduce | 41.78 | 58.57 | Barrier 6.72 | 同步瓶颈 |
+| layernorm_welford | 48.06 | 63.85 | Barrier 5.35 | 依赖链 |
+| attention_fused_v2 | 59.70 | 70.78 | Wait 3.38 | 并行度不足 |
+
+### 一键脚本
+
+```bash
+# 单 kernel 完整 profiling
+scripts/profile_kernel.sh matmul_tiled_kernel
 ```
 
 ## 学习路线 (4 周)
@@ -58,6 +119,7 @@ make -j$(nproc)
 - CUDA Toolkit ≥ 11.0
 - nvidia-smi + nvcc 可用
 - 推荐：nsight-compute (ncu) / nsight-systems (nsys)
+- 自动化 profiling 工具：`tests/cuda/perf/` (Python, 封装 ncu + 瓶颈分类 + roofline)
 
 ## Phase 2: 微型推理引擎 (v0.5)
 
