@@ -15,15 +15,25 @@
 
 ### Key Insights
 
-**matmul_naive 是 memory-bound，不是 compute-bound。** SM% = 97.46% 极具欺骗性——kernel "看起来"很忙，但 Warp State Statistics 揭示真相: Top 1 Stall 是 Long Scoreboard (10.92 inst/issue)。这意味着 warp 绝大部分时间在等 global memory load (`LDG`) 返回数据，SM 只是因为 load 指令占满了流水线才显得 97% 活跃。→ **瓶颈是 HBM 带宽，不是 ALU。**
+#### matmul_naive: Memory-Bound, Not Compute-Bound
 
-**matmul_tiled 做了 stall 类别的交易，不是"更好的数据局部性"。** Long Scoreboard 从 10.92 降到 8.12（等内存变少了），但 Barrier (5.47) 作为新瓶颈顶上来——`__syncthreads()` 等待变成了代价。本质是 **"memory wait → sync wait"** 的交换，不是消除了瓶颈。Tile 确实减少了 global memory 访问，但把等待转移到了 block 内的同步点。
+SM% = 97.46% 极具欺骗性——kernel "看起来"很忙，但 Warp State Statistics 揭示真相: Top 1 Stall 是 Long Scoreboard (10.92 inst/issue)。这意味着 warp 绝大部分时间在等 global memory load (`LDG`) 返回数据，SM 只是因为 load 指令占满了流水线才显得 97% 活跃。→ **瓶颈是 HBM 带宽，不是 ALU。**
 
-**softmax 是 sync-bound。** Barrier (6.72) 排第一——warp reduce 的串行尾巴（每轮 `__shfl_down_sync` 后必须等所有线程）成为瓶颈。优化方向: 减少 reduce 步数或提高 occupancy 让更多 warp 切换隐藏 barrier。
+#### matmul_tiled: Stall Category Trade, Not Better Locality
 
-**layernorm 是依赖链瓶颈。** Barrier (5.35) + Wait 揭示了 Welford 算法的本质问题——必须先算完 mean 才能算 variance，两次 warp reduce 是串行的，中间有 hard dependency。优化方向: 两趟 reduce 合并或改用 parallel reduction。
+Long Scoreboard 从 10.92 降到 8.12（等内存变少了），但 Barrier (5.47) 作为新瓶颈顶上来——`__syncthreads()` 等待变成了代价。本质是 **"memory wait → sync wait"** 的交换，不是消除了瓶颈。Tile 确实减少了 global memory 访问，但把等待转移到了 block 内的同步点。
 
-**attention 是并行度不足。** Wait (3.38) 排第一，但根本原因不是延迟——是 grid 太小。128 blocks 分给 28 SMs = 每个 SM 只能分到约 4.6 个 block（0.91 波），SM 无法靠多 block 切换来隐藏 latency。真实推理中 S≥2048 时 blocks 数量会增长，并行度自然回升。
+#### softmax: Sync-Bound
+
+Barrier (6.72) 排第一——warp reduce 的串行尾巴（每轮 `__shfl_down_sync` 后必须等所有线程）成为瓶颈。优化方向: 减少 reduce 步数或提高 occupancy 让更多 warp 切换隐藏 barrier。
+
+#### layernorm: Dependency Chain Bottleneck
+
+Barrier (5.35) + Wait 揭示了 Welford 算法的本质问题——必须先算完 mean 才能算 variance，两次 warp reduce 是串行的，中间有 hard dependency。优化方向: 两趟 reduce 合并或改用 parallel reduction。
+
+#### attention: Insufficient Parallelism
+
+Wait (3.38) 排第一，但根本原因不是延迟——是 grid 太小。128 blocks 分给 28 SMs = 每个 SM 只能分到约 4.6 个 block（0.91 波），SM 无法靠多 block 切换来隐藏 latency。真实推理中 S≥2048 时 blocks 数量会增长，并行度自然回升。
 
 # MiniTensor
 
