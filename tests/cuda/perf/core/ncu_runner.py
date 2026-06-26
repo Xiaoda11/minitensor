@@ -44,10 +44,30 @@ def _resolve_ncu() -> str:
 def list_kernels(binary: str) -> list[str]:
     """Discover all kernel symbols in a CUDA binary.
 
-    Uses cuobjdump to extract __global__ function symbols.
-    Falls back to ncu --list-sets if cuobjdump is unavailable.
+    Uses ncu to list demangled kernel names.
+    Falls back to cuobjdump when ncu is unavailable.
     """
-    # Method 1: cuobjdump (fast, no GPU needed)
+    # Method 1: ncu --list-kernels (requires GPU, returns demangled names)
+    try:
+        out = subprocess.check_output(
+            [_resolve_ncu(), "--list-kernels", binary],
+            stderr=subprocess.STDOUT,
+            timeout=30
+        ).decode()
+        kernels = []
+        for line in out.splitlines():
+            line = line.strip()
+            if line and not line.startswith("==") and not line.startswith("Kernel"):
+                # Format: "  kernel_name" or "kernel_name"
+                name = line.strip()
+                if name:
+                    kernels.append(name)
+        if kernels:
+            return sorted(set(kernels))
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        pass
+
+    # Method 2: cuobjdump (fast, no GPU needed; returns mangled C++ names)
     try:
         out = subprocess.check_output(
             ["cuobjdump", "-symbols", binary],
@@ -62,32 +82,28 @@ def list_kernels(binary: str) -> list[str]:
                 if parts:
                     name = parts[-1]
                     if "_kernel" in name or name.startswith("_"):
-                        kernels.append(name)
+                        kernels.append(_demangle_kernel_name(name))
         if kernels:
             return sorted(set(kernels))
     except (FileNotFoundError, subprocess.CalledProcessError):
         pass
 
-    # Method 2: ncu --list-kernels (requires GPU)
-    try:
-        out = subprocess.check_output(
-            ["ncu", "--list-kernels", binary],
-            stderr=subprocess.STDOUT,
-            timeout=30
-        ).decode()
-        kernels = []
-        for line in out.splitlines():
-            line = line.strip()
-            if line and not line.startswith("==") and not line.startswith("Kernel"):
-                # Format: "  kernel_name" or "kernel_name"
-                name = line.strip()
-                if name:
-                    kernels.append(name)
-        return sorted(set(kernels))
-    except (FileNotFoundError, subprocess.CalledProcessError):
-        pass
-
     return []
+
+
+def _demangle_kernel_name(name: str) -> str:
+    """Convert a C++ mangled symbol into the name accepted by ncu."""
+    try:
+        demangled = subprocess.check_output(
+            ["c++filt"],
+            input=f"{name}\n".encode(),
+            stderr=subprocess.STDOUT,
+            timeout=5
+        ).decode().strip()
+    except (FileNotFoundError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        return name
+
+    return re.sub(r"\s*\([^()]*\)\s*$", "", demangled)
 
 
 # ── NCU execution ────────────────────────────────────────────────────
