@@ -21,14 +21,25 @@
 
 RTX 3060 理论峰值: ~12.7 TFLOPS FP32, ~360 GB/s HBM bandwidth. Ridge point ≈ 35 FLOP/byte.
 
-| Kernel | AI (FLOP/byte) | 带宽利用率 | 算力利用率 | Roofline 位置 |
-|--------|---------------|-----------|-----------|-------------|
-| vector_add | 0.08 | 92% | 0.2% | 极左 → memory-bound ✓ |
-| matmul_naive | ~1024 | 1.2% | 5.9% | 极右 → 理论 compute-bound，实际 memory-latency 吃掉 |
-| matmul_tiled | ~1024 | 1.7% | 8.0% | 极右 → 同上，tile 太小没缓解 latency |
-| softmax | 0.42 | 40% | 1.1% | 左侧 → memory-bound |
-| layernorm | 0.25 | 11% | 0.3% | 左侧 → memory-bound, Welford 3× shuffle |
-| attention | ~128 | 0.8% | 0.7% | latency-bound (S=128 太小) |
+| Kernel | AI (FLOP/byte) | Theo MB | 带宽利用率 | 算力利用率 | x Amp | Roofline 位置 |
+|--------|---------------|--------:|-----------|-----------|------:|-------------|
+| vector_add | 0.08 | 192 | 92% | 0.2% | 1.0× | 极左 → memory-bound ✓ |
+| matmul_naive | ~1024 | 12 | 1.2% | 5.9% | 596× | 极右 → 理论 compute-bound，实际 memory-latency 吃掉 |
+| matmul_tiled | ~1024 | 12 | 1.7% | 8.0% | 23× | 极右 → 同上，tile 太小没缓解 latency |
+| softmax | 0.42 | 8 | 40% | 1.1% | 24× | 左侧 → memory-bound |
+| layernorm | 0.25 | 8 | 11% | 0.3% | 6× | 左侧 → memory-bound, Welford 3× shuffle |
+| attention | ~128 | 0.125 | 0.8% | 0.7% | 22× | latency-bound (S=128 太小) |
+
+### Theoretical Bytes & Amplification
+
+`Theo MB` 来自 `tests/cuda/perf/core/analyzer.py::estimate_bytes()`：理论最小 DRAM traffic = input reads + output writes，假设每个元素只从 DRAM 读一次、输出只写一次。`x Amp` 来自 `annotate_flops_and_ai()` 的 `total_dram_bytes / theoretical_bytes`，其中 `total_dram_bytes = dram read + dram write`。
+
+关键发现:
+- **vector_add**: 192 MB 理论值 ≈ 192 MB 实测值，1.0× 是最优 streaming；瓶颈就是 HBM bandwidth。
+- **matmul_naive**: 12 MB 理论值 vs ~7156 MB DRAM read，596× 说明几乎没有 cache reuse，AI 虽高但实际被 global memory latency 吃掉。
+- **matmul_tiled**: 12 MB 理论值 vs ~276 MB total DRAM，23× 说明 tile=16 有复用但远不够；L2 只挡掉约一半 redundant read。
+- **softmax / layernorm**: 理论上都是 8 MB input+output，softmax 24× 来自多 pass row reduction，layernorm 6× 还叠加 Welford shuffle 开销。
+- **attention**: 0.125 MB 理论值太小，22× 放大后也只有 ~2.8 MB；S=128 下主要是 launch/latency-bound。
 
 ### 面试三句话模板
 
@@ -73,6 +84,8 @@ RTX 3060 理论峰值: ~12.7 TFLOPS FP32, ~360 GB/s HBM bandwidth. Ridge point �
 读放大系数:             271 / 8 = 34×
 写效率:                 5.1 / 4 = 1.28× (接近完美)
 ```
+
+注意: 这里的 34× 是 read-only 诊断，分母只用理想 A+B read = 8 MB。perf framework 现在按 `estimate_bytes()` / `annotate_flops_and_ai()` 计算 total DRAM amplification: `(dram__bytes_read + dram__bytes_write) / (A read + B read + C write) = (271 + 5.1) / 12 ≈ 23×`。差异来自分母加入了理论 C write 4 MB，分子也加入了实际 write 5.1 MB；因此 23× 是端到端 read+write 放大，34× 是专门观察 redundant read 的放大。
 
 放大原因:
 - 算法级 global load 请求总量 = 4096 blocks × 64 iterations × 2 tiles × 256 floats × 4B = **512 MB**
