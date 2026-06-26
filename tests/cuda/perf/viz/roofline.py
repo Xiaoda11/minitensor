@@ -2,7 +2,7 @@
 
 from typing import Optional
 
-from ..core.types import KernelProfile, GpuSpec
+from core.types import KernelProfile, GpuSpec
 
 
 def plot(profiles: list[KernelProfile],

@@ -3,6 +3,7 @@
 import subprocess
 import re
 import json
+import shutil
 from typing import Optional
 
 from .types import KernelProfile
@@ -22,6 +23,23 @@ METRICS = (
 
 
 # ── Kernel discovery ────────────────────────────────────────────────
+
+def _resolve_ncu() -> str:
+    ncu = shutil.which("ncu")
+    if ncu:
+        return ncu
+
+    for candidate in (
+        "/usr/local/cuda/bin/ncu",
+        "/usr/local/cuda-13.2/bin/ncu",
+        "/usr/local/cuda-12/bin/ncu",
+    ):
+        ncu = shutil.which(candidate)
+        if ncu:
+            return ncu
+
+    raise FileNotFoundError("ncu")
+
 
 def list_kernels(binary: str) -> list[str]:
     """Discover all kernel symbols in a CUDA binary.
@@ -93,18 +111,18 @@ def run_ncu(binary: str, kernel: str,
         FileNotFoundError: if ncu is not installed.
         subprocess.TimeoutExpired: if ncu hangs.
     """
-    cmd = ["ncu"]
-    if sudo:
-        cmd.insert(0, "sudo")
-
-    cmd += [
-        "--kernel-name", kernel,
-        "--launch-count", "1",
-        "--metrics", METRICS,
-        binary,
-    ]
-
     try:
+        cmd = [_resolve_ncu()]
+        if sudo:
+            cmd.insert(0, "sudo")
+
+        cmd += [
+            "--kernel-name", kernel,
+            "--launch-count", "1",
+            "--metrics", METRICS,
+            binary,
+        ]
+
         out = subprocess.check_output(
             cmd,
             stderr=subprocess.STDOUT,
