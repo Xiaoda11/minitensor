@@ -1,0 +1,28 @@
+==PROF== Connected to process 63960 (/home/lee/minitensor/tests/cuda/build/benchmark/cuda_kernel_benchmark)
+==PROF== Profiling "layernorm_welford_kernel": 0%....50%....100% - 9 passes
+// GPU: NVIDIA GeForce RTX 3060, CC 8.6, 12287 MB VRAM, 28 SMs
+
+| Op | Shape | Config | Latency (us) | Bandwidth (GB/s) | GFLOPS | Bottleneck |
+| --- | --- | --- | ---: | ---: | ---: | --- |
+| vector_add | [16M] | 256 thr × 65536 blk | 613.79 | 328.00 | 27.33 | memory bandwidth (3 arrays, 0 compute reuse) |
+| matmul_naive | [1024×1024]×[1024×1024] | 16×16 thr × 64×64 blk | 2814.82 | 4.47 | 762.92 | global memory traffic (no tiling, O(MNK) reads, only ~12 GB/s HBM on RTX 2060) |
+| matmul_tiled | [1024×1024]×[1024×1024] | 16×16 thr × 64×64 blk, tile=16 | 2137.84 | 5.89 | 1004.51 | shared memory reuse + occupancy (tile=16, 2 warps/SM on 2060 → low occupancy) |
+| softmax | [1024×1024] | 1024 thr × 1024 blk, smem=1 warps×4B | 64.51 | 130.03 | 130.03 | memory bandwidth (row reductions, warp-level parallelism helps but each row only 1 warp) |
+| layernorm | [1024×1024] | 1024 thr × 1024 blk, smem=1 warps×WelfordState | 208.38 | 40.26 | 40.26 | memory bandwidth (row reductions, Welford online mean/variance, 2-pass fuse) |
+| attention | [B=1,H=1,S=128,D=64] | 256 thr × 128 blk, smem=~17KB | 47.26 | 2.77 | 91.53 | QK reduction + softmax (fused kernel reduces HBM traffic but S×S compute dominates) |
+==PROF== Disconnected from process 63960
+[63960] cuda_kernel_benchmark@127.0.0.1
+  layernorm_welford_kernel(const float *, float *, int, int, float) (1024, 1, 1)x(1024, 1, 1), Context 1, Stream 7, Device 0, CC 8.6
+    Section: Command line profiler metrics
+    ------------------------------------------------------------------------ ----------- ------------
+    Metric Name                                                              Metric Unit Metric Value
+    ------------------------------------------------------------------------ ----------- ------------
+    dram__bytes_read.sum                                                           Mbyte         4.21
+    dram__bytes_write.sum                                                          Mbyte         4.06
+    l1tex__throughput.avg.pct_of_peak_sustained_elapsed                                %        15.05
+    sm__throughput.avg.pct_of_peak_sustained_elapsed                                   %        48.03
+    smsp__average_warps_issue_stalled_barrier_per_issue_active.ratio                inst         5.35
+    smsp__average_warps_issue_stalled_long_scoreboard_per_issue_active.ratio        inst         0.75
+    smsp__warps_active.avg.pct_of_peak_sustained_elapsed                               %        63.81
+    ------------------------------------------------------------------------ ----------- ------------
+
