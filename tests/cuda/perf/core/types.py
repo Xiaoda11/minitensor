@@ -109,6 +109,8 @@ class KernelProfile:
     tag: str = "unknown"               # bottleneck classification
     estimated_flops: float = 0.0       # estimated total FLOPs
     arithmetic_intensity: float = 0.0  # FLOP / byte
+    theoretical_bytes: float = 0.0     # theoretical minimum DRAM traffic (bytes)
+    bytes_amplification: float = 0.0   # actual DRAM / theoretical (×)
 
     @property
     def total_dram_mb(self) -> float:
@@ -118,3 +120,8 @@ class KernelProfile:
     def total_dram_bytes(self) -> float:
         # Nsight reports MB as mebibytes (2^20), not decimal (10^6)
         return self.total_dram_mb * 1_048_576
+
+    @property
+    def theoretical_mb(self) -> float:
+        """Theoretical minimum data movement in MB (mebibytes)."""
+        return self.theoretical_bytes / 1_048_576

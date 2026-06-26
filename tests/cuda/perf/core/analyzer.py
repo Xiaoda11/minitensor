@@ -37,7 +37,12 @@ def estimate_flops(kernel_name: str, shapes: Optional[dict] = None) -> float:
     name_lower = kernel_name.lower()
 
     if "matmul" in name_lower:
-        M, K, N = sh.get("matmul_tiled", sh.get("matmul_naive", (1024, 1024, 1024)))
+        if "matmul_tiled" in name_lower:
+            M, K, N = sh["matmul_tiled"]
+        elif "matmul_naive" in name_lower:
+            M, K, N = sh["matmul_naive"]
+        else:
+            M, K, N = sh.get("matmul_tiled", sh.get("matmul_naive", (1024, 1024, 1024)))
         return 2.0 * M * K * N
 
     if "attention" in name_lower:
@@ -56,6 +61,58 @@ def estimate_flops(kernel_name: str, shapes: Optional[dict] = None) -> float:
     if "vector_add" in name_lower:
         N = sh.get("vector_add", 16_777_216)
         return float(N)
+
+    return 0.0
+
+
+def estimate_bytes(kernel_name: str, shapes: Optional[dict] = None) -> float:
+    """Estimate theoretical minimum DRAM traffic (bytes) for a kernel.
+
+    The theoretical minimum is the sum of input reads + output writes,
+    assuming each element is read exactly once from DRAM (perfect
+    cache/reuse scenario). This is the HBM traffic floor for a perfectly
+    optimized kernel.
+
+    Args:
+        kernel_name: The kernel symbol name (e.g. 'matmul_tiled_kernel').
+        shapes: Optional dict overriding DEFAULT_SHAPES per workload type.
+
+    Returns:
+        Estimated minimum bytes, or 0.0 if the kernel type is unrecognized.
+    """
+    FP32 = 4  # sizeof(float)
+    sh = {**DEFAULT_SHAPES, **(shapes or {})}
+    name_lower = kernel_name.lower()
+
+    if "vector_add" in name_lower:
+        # read A + read B + write C = 3 arrays
+        N = sh.get("vector_add", 16_777_216)
+        return 3.0 * N * FP32
+
+    if "matmul" in name_lower:
+        # C[M×N] = A[M×K] × B[K×N]: read A + read B + write C
+        if "matmul_tiled" in name_lower:
+            M, K, N = sh["matmul_tiled"]
+        elif "matmul_naive" in name_lower:
+            M, K, N = sh["matmul_naive"]
+        else:
+            M, K, N = sh.get("matmul_tiled", sh.get("matmul_naive", (1024, 1024, 1024)))
+        return float(M * K + K * N + M * N) * FP32
+
+    if "attention" in name_lower:
+        # read Q + read K + read V + write O
+        B, S, D = sh.get("attention", (1, 128, 64))
+        return float(B * S * D * 4) * FP32
+
+    if "softmax" in name_lower:
+        # read input + write output = 2 matrices
+        R, C = sh.get("softmax", (1024, 1024))
+        return 2.0 * R * C * FP32
+
+    if "layernorm" in name_lower:
+        # read input + write output = 2 matrices
+        R, C = sh.get("layernorm", (1024, 1024))
+        return 2.0 * R * C * FP32
 
     return 0.0
 
@@ -136,7 +193,11 @@ def summarize(groups: dict[str, list[KernelProfile]]) -> dict:
 
 def annotate_flops_and_ai(profiles: list[KernelProfile],
                           shapes: Optional[dict] = None) -> None:
-    """Mutate profiles in-place: estimate FLOPs and compute AI for each."""
+    """Mutate profiles in-place: estimate FLOPs, theoretical bytes, and compute AI."""
     for p in profiles:
         p.estimated_flops = estimate_flops(p.name, shapes)
         p.arithmetic_intensity = compute_ai(p)
+        p.theoretical_bytes = estimate_bytes(p.name, shapes)
+        p.bytes_amplification = 0.0
+        if p.theoretical_bytes > 0 and p.total_dram_bytes > 0:
+            p.bytes_amplification = p.total_dram_bytes / p.theoretical_bytes

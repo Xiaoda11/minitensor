@@ -162,19 +162,24 @@ def main():
     summary = summarize(groups)
 
     # ── Print results ──
-    print("\n" + "=" * 70)
+    print("\n" + "=" * 80)
     print("  PER-KERNEL RESULTS")
-    print("=" * 70)
-    print(f"{'Kernel':<35} {'SM%':>6} {'DRAM(MB)':>10} {'AI':>8} {'Tag':<18}")
-    print("-" * 70)
+    print("=" * 80)
+    print(f"{'Kernel':<33} {'SM%':>5} {'Theo MB':>8} {'DRAM MB':>8} {'×Amp':>5} {'AI':>7} {'Tag':<18}")
+    print("-" * 80)
 
     for p in profiles:
         tag_clean = p.tag.split(":")[0].strip() if ":" in p.tag else p.tag
+        amp_str = f"{p.bytes_amplification:.1f}" if p.bytes_amplification > 0 else "—"
+        ai_str = f"{p.arithmetic_intensity:.1f}" if p.arithmetic_intensity > 0 else "—"
+        theo_str = f"{p.theoretical_mb:.1f}" if p.theoretical_bytes > 0 else "—"
         print(
-            f"{p.name:<35} "
-            f"{p.sm_util:>5.1f}% "
-            f"{p.total_dram_mb:>9.1f} "
-            f"{p.arithmetic_intensity:>7.1f} "
+            f"{p.name:<33} "
+            f"{p.sm_util:>4.1f}% "
+            f"{theo_str:>8} "
+            f"{p.total_dram_mb:>7.1f} "
+            f"{amp_str:>5} "
+            f"{ai_str:>7} "
             f"{tag_clean:<18}"
         )
 
@@ -235,6 +240,9 @@ def main():
                     "scoreboard_stall": p.scoreboard_stall,
                     "estimated_flops": p.estimated_flops,
                     "arithmetic_intensity": p.arithmetic_intensity,
+                    "theoretical_bytes": p.theoretical_bytes,
+                    "theoretical_mb": p.theoretical_mb,
+                    "bytes_amplification": p.bytes_amplification,
                     "tag": p.tag,
                 }
                 for p in profiles

@@ -30,6 +30,8 @@ python3 main.py --bin ../build_cuda/benchmark/cuda_kernel_benchmark --list-kerne
 | **kernel discovery** | Auto-finds all `__global__` functions via `cuobjdump` |
 | **bottleneck classification** | Rule-based: compute/memory/latency/sync/balanced |
 | **FLOP estimation** | Per-workload FLOP formulas (matmul, softmax, attention, layernorm) |
+| **theoretical bytes** | Minimum DRAM traffic per kernel (read inputs + write output, assuming perfect reuse) |
+| **amplification factor** | Actual DRAM bytes / theoretical bytes — quantifies cache/memory inefficiency |
 | **arithmetic intensity** | AI = estimated FLOPs / actual DRAM bytes |
 | **workload grouping** | Groups by type: matmul, softmax, attention, layernorm, etc. |
 | **roofline plot** | Log-log roofline with memory bandwidth + compute ceilings |
@@ -83,6 +85,22 @@ tests/cuda/perf/
 | layernorm | 8 × R × C | 8 × 1024² ≈ 8.4M FLOPs |
 | vector_add | N | 16M FLOPs |
 
+## Theoretical Bytes (Minimum DRAM Traffic)
+
+Each kernel type has a theoretical lower bound on HBM traffic — the sum of
+all input reads + output writes, assuming every element is touched exactly
+once. The **amplification factor** (actual DRAM ÷ theoretical) reveals how
+much redundant data movement is happening due to cache misses, tiling
+inefficiency, or redundant loads.
+
+| Workload | Formula (FP32) | Example (default shape) |
+|----------|---------------|------------------------|
+| matmul | (M×K + K×N + M×N) × 4 | (3 × 1024²) × 4 = 12 MB |
+| attention | B × 4 × S × D × 4 | 1 × 4 × 128 × 64 × 4 = 128 KB |
+| softmax | 2 × R × C × 4 | 2 × 1024² × 4 = 8 MB |
+| layernorm | 2 × R × C × 4 | 2 × 1024² × 4 = 8 MB |
+| vector_add | 3 × N × 4 | 3 × 16M × 4 = 192 MB |
+
 ## GPU Specs Database
 
 Pre-configured specs for roofline ceiling lines:
@@ -112,28 +130,28 @@ Profiling 6 kernel(s) ...
 [2/6] profiling matmul_tiled_kernel ...
 ...
 
-======================================================================
+================================================================================
   PER-KERNEL RESULTS
-======================================================================
-Kernel                              SM%   DRAM(MB)       AI  Tag
--------------------------------------------------------------------
-matmul_naive_kernel                 45.3%    7156.2   1024.0  compute_bound
-matmul_tiled_kernel                 96.4%    1015.3   1024.0  memory_bound
-softmax_warp_reduce_kernel          38.2%     192.0      0.4  memory_bound
-attention_fused_kernel              12.1%       2.8    128.0  latency_bound
-layernorm_welford_kernel            11.0%      48.0      0.3  memory_bound
-vector_add_kernel                   92.0%     192.0      0.1  memory_bound
+================================================================================
+Kernel                              SM%  Theo MB  DRAM MB  ×Amp      AI  Tag
+--------------------------------------------------------------------------------
+matmul_naive_kernel                 45.3%    12.0   7156.2  596.4     0.3  compute_bound
+matmul_tiled_kernel                 96.4%    12.0   7156.2  596.4     0.3  memory_bound
+softmax_warp_reduce_kernel          38.2%     8.0    192.0   24.0    0.04  memory_bound
+attention_fused_kernel              12.1%   0.125      2.8   22.4     1.5  latency_bound
+layernorm_welford_kernel            11.0%     8.0    192.0   24.0    0.04  memory_bound
+vector_add_kernel                   92.0%   192.0    192.0    1.0    0.08  memory_bound
 
 ======================================================================
   GROUP SUMMARY
 ======================================================================
 Group           Count  Avg SM%   Avg AI  Tags
 -------------------------------------------------------------------
-attention           1     12.1%    128.0  latency_bound(1)
-layernorm           1     11.0%      0.3  memory_bound(1)
-matmul              2     70.9%   1024.0  compute_bound(1), memory_bound(1)
-softmax             1     38.2%      0.4  memory_bound(1)
-vector_add          1     92.0%      0.1  memory_bound(1)
+attention           1     12.1%      1.5  latency_bound(1)
+layernorm           1     11.0%     0.04  memory_bound(1)
+matmul              2     70.9%      0.3  compute_bound(1), memory_bound(1)
+softmax             1     38.2%     0.04  memory_bound(1)
+vector_add          1     92.0%     0.08  memory_bound(1)
 ```
 
 ## Integration with minitensor
