@@ -1,0 +1,55 @@
+===== run 1 =====
+// GPU: NVIDIA GeForce RTX 3060, CC 8.6, 12287 MB VRAM, 28 SMs
+
+| Op | Shape | Config | Latency (us) | Bandwidth (GB/s) | GFLOPS | Bottleneck |
+| --- | --- | --- | ---: | ---: | ---: | --- |
+| vector_add | [16M] | 256 thr × 65536 blk | 605.40 | 332.55 | 27.71 | memory bandwidth (3 arrays, 0 compute reuse) |
+| matmul_naive | [1024×1024]×[1024×1024] | 16×16 thr × 64×64 blk | 2875.44 | 4.38 | 746.84 | global memory traffic (no tiling, O(MNK) reads, only ~12 GB/s HBM on RTX 2060) |
+| matmul_tiled | [1024×1024]×[1024×1024] | 16×16 thr × 64×64 blk, tile=16 | 2120.60 | 5.93 | 1012.68 | shared memory reuse + occupancy (tile=16, 2 warps/SM on 2060 → low occupancy) |
+| softmax | [1024×1024] | 1024 thr × 1024 blk, smem=1 warps×4B | 60.55 | 138.54 | 138.54 | memory bandwidth (row reductions, warp-level parallelism helps but each row only 1 warp) |
+| layernorm | [1024×1024] | 1024 thr × 1024 blk, smem=1 warps×WelfordState | 216.34 | 38.78 | 38.78 | memory bandwidth (row reductions, Welford online mean/variance, 2-pass fuse) |
+| attention | [B=1,H=1,S=128,D=64] | 256 thr × 128 blk, smem=~17KB | 48.16 | 2.72 | 89.82 | QK reduction + softmax (fused kernel reduces HBM traffic but S×S compute dominates) |
+===== run 2 =====
+// GPU: NVIDIA GeForce RTX 3060, CC 8.6, 12287 MB VRAM, 28 SMs
+
+| Op | Shape | Config | Latency (us) | Bandwidth (GB/s) | GFLOPS | Bottleneck |
+| --- | --- | --- | ---: | ---: | ---: | --- |
+| vector_add | [16M] | 256 thr × 65536 blk | 612.11 | 328.91 | 27.41 | memory bandwidth (3 arrays, 0 compute reuse) |
+| matmul_naive | [1024×1024]×[1024×1024] | 16×16 thr × 64×64 blk | 2641.62 | 4.76 | 812.94 | global memory traffic (no tiling, O(MNK) reads, only ~12 GB/s HBM on RTX 2060) |
+| matmul_tiled | [1024×1024]×[1024×1024] | 16×16 thr × 64×64 blk, tile=16 | 1950.77 | 6.45 | 1100.84 | shared memory reuse + occupancy (tile=16, 2 warps/SM on 2060 → low occupancy) |
+| softmax | [1024×1024] | 1024 thr × 1024 blk, smem=1 warps×4B | 59.44 | 141.12 | 141.12 | memory bandwidth (row reductions, warp-level parallelism helps but each row only 1 warp) |
+| layernorm | [1024×1024] | 1024 thr × 1024 blk, smem=1 warps×WelfordState | 211.06 | 39.74 | 39.74 | memory bandwidth (row reductions, Welford online mean/variance, 2-pass fuse) |
+| attention | [B=1,H=1,S=128,D=64] | 256 thr × 128 blk, smem=~17KB | 46.25 | 2.83 | 93.51 | QK reduction + softmax (fused kernel reduces HBM traffic but S×S compute dominates) |
+===== run 3 =====
+// GPU: NVIDIA GeForce RTX 3060, CC 8.6, 12287 MB VRAM, 28 SMs
+
+| Op | Shape | Config | Latency (us) | Bandwidth (GB/s) | GFLOPS | Bottleneck |
+| --- | --- | --- | ---: | ---: | ---: | --- |
+| vector_add | [16M] | 256 thr × 65536 blk | 617.67 | 325.95 | 27.16 | memory bandwidth (3 arrays, 0 compute reuse) |
+| matmul_naive | [1024×1024]×[1024×1024] | 16×16 thr × 64×64 blk | 2607.46 | 4.83 | 823.59 | global memory traffic (no tiling, O(MNK) reads, only ~12 GB/s HBM on RTX 2060) |
+| matmul_tiled | [1024×1024]×[1024×1024] | 16×16 thr × 64×64 blk, tile=16 | 1958.96 | 6.42 | 1096.23 | shared memory reuse + occupancy (tile=16, 2 warps/SM on 2060 → low occupancy) |
+| softmax | [1024×1024] | 1024 thr × 1024 blk, smem=1 warps×4B | 59.45 | 141.10 | 141.10 | memory bandwidth (row reductions, warp-level parallelism helps but each row only 1 warp) |
+| layernorm | [1024×1024] | 1024 thr × 1024 blk, smem=1 warps×WelfordState | 212.47 | 39.48 | 39.48 | memory bandwidth (row reductions, Welford online mean/variance, 2-pass fuse) |
+| attention | [B=1,H=1,S=128,D=64] | 256 thr × 128 blk, smem=~17KB | 46.18 | 2.84 | 93.66 | QK reduction + softmax (fused kernel reduces HBM traffic but S×S compute dominates) |
+===== run 4 =====
+// GPU: NVIDIA GeForce RTX 3060, CC 8.6, 12287 MB VRAM, 28 SMs
+
+| Op | Shape | Config | Latency (us) | Bandwidth (GB/s) | GFLOPS | Bottleneck |
+| --- | --- | --- | ---: | ---: | ---: | --- |
+| vector_add | [16M] | 256 thr × 65536 blk | 605.14 | 332.69 | 27.72 | memory bandwidth (3 arrays, 0 compute reuse) |
+| matmul_naive | [1024×1024]×[1024×1024] | 16×16 thr × 64×64 blk | 2607.09 | 4.83 | 823.71 | global memory traffic (no tiling, O(MNK) reads, only ~12 GB/s HBM on RTX 2060) |
+| matmul_tiled | [1024×1024]×[1024×1024] | 16×16 thr × 64×64 blk, tile=16 | 1959.58 | 6.42 | 1095.89 | shared memory reuse + occupancy (tile=16, 2 warps/SM on 2060 → low occupancy) |
+| softmax | [1024×1024] | 1024 thr × 1024 blk, smem=1 warps×4B | 59.44 | 141.12 | 141.12 | memory bandwidth (row reductions, warp-level parallelism helps but each row only 1 warp) |
+| layernorm | [1024×1024] | 1024 thr × 1024 blk, smem=1 warps×WelfordState | 211.27 | 39.71 | 39.71 | memory bandwidth (row reductions, Welford online mean/variance, 2-pass fuse) |
+| attention | [B=1,H=1,S=128,D=64] | 256 thr × 128 blk, smem=~17KB | 46.47 | 2.82 | 93.08 | QK reduction + softmax (fused kernel reduces HBM traffic but S×S compute dominates) |
+===== run 5 =====
+// GPU: NVIDIA GeForce RTX 3060, CC 8.6, 12287 MB VRAM, 28 SMs
+
+| Op | Shape | Config | Latency (us) | Bandwidth (GB/s) | GFLOPS | Bottleneck |
+| --- | --- | --- | ---: | ---: | ---: | --- |
+| vector_add | [16M] | 256 thr × 65536 blk | 607.53 | 331.39 | 27.62 | memory bandwidth (3 arrays, 0 compute reuse) |
+| matmul_naive | [1024×1024]×[1024×1024] | 16×16 thr × 64×64 blk | 2591.89 | 4.85 | 828.54 | global memory traffic (no tiling, O(MNK) reads, only ~12 GB/s HBM on RTX 2060) |
+| matmul_tiled | [1024×1024]×[1024×1024] | 16×16 thr × 64×64 blk, tile=16 | 1961.06 | 6.42 | 1095.06 | shared memory reuse + occupancy (tile=16, 2 warps/SM on 2060 → low occupancy) |
+| softmax | [1024×1024] | 1024 thr × 1024 blk, smem=1 warps×4B | 59.37 | 141.29 | 141.29 | memory bandwidth (row reductions, warp-level parallelism helps but each row only 1 warp) |
+| layernorm | [1024×1024] | 1024 thr × 1024 blk, smem=1 warps×WelfordState | 208.47 | 40.24 | 40.24 | memory bandwidth (row reductions, Welford online mean/variance, 2-pass fuse) |
+| attention | [B=1,H=1,S=128,D=64] | 256 thr × 128 blk, smem=~17KB | 46.28 | 2.83 | 93.45 | QK reduction + softmax (fused kernel reduces HBM traffic but S×S compute dominates) |
