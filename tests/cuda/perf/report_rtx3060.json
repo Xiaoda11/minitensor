@@ -1,0 +1,306 @@
+{
+  "gpu": {
+    "name": "RTX 3060",
+    "fp32_tflops": 12.7,
+    "hbm_bandwidth_gbs": 360
+  },
+  "profiles": [
+    {
+      "name": "attention_fused_kernel",
+      "sm_util": 0.0,
+      "dram_read_mb": 0.0,
+      "dram_write_mb": 0.0,
+      "total_dram_mb": 0.0,
+      "l1_util": 0.0,
+      "warp_active": 0.0,
+      "barrier_stall": 0.0,
+      "scoreboard_stall": 0.0,
+      "estimated_flops": 4325376.0,
+      "arithmetic_intensity": 0.0,
+      "theoretical_bytes": 131072.0,
+      "theoretical_mb": 0.125,
+      "bytes_amplification": 0.0,
+      "tag": "parse_error"
+    },
+    {
+      "name": "attention_fused_kernel_v2",
+      "sm_util": 59.87,
+      "dram_read_mb": 0.0,
+      "dram_write_mb": 0.0,
+      "total_dram_mb": 0.0,
+      "l1_util": 39.88,
+      "warp_active": 71.04,
+      "barrier_stall": 1.65,
+      "scoreboard_stall": 3.11,
+      "estimated_flops": 4325376.0,
+      "arithmetic_intensity": 0.0,
+      "theoretical_bytes": 131072.0,
+      "theoretical_mb": 0.125,
+      "bytes_amplification": 0.0,
+      "tag": "balanced"
+    },
+    {
+      "name": "layernorm_naive_kernel",
+      "sm_util": 0.0,
+      "dram_read_mb": 0.0,
+      "dram_write_mb": 0.0,
+      "total_dram_mb": 0.0,
+      "l1_util": 0.0,
+      "warp_active": 0.0,
+      "barrier_stall": 0.0,
+      "scoreboard_stall": 0.0,
+      "estimated_flops": 8388608.0,
+      "arithmetic_intensity": 0.0,
+      "theoretical_bytes": 8388608.0,
+      "theoretical_mb": 8.0,
+      "bytes_amplification": 0.0,
+      "tag": "parse_error"
+    },
+    {
+      "name": "layernorm_warp_reduce_kernel",
+      "sm_util": 0.0,
+      "dram_read_mb": 0.0,
+      "dram_write_mb": 0.0,
+      "total_dram_mb": 0.0,
+      "l1_util": 0.0,
+      "warp_active": 0.0,
+      "barrier_stall": 0.0,
+      "scoreboard_stall": 0.0,
+      "estimated_flops": 8388608.0,
+      "arithmetic_intensity": 0.0,
+      "theoretical_bytes": 8388608.0,
+      "theoretical_mb": 8.0,
+      "bytes_amplification": 0.0,
+      "tag": "parse_error"
+    },
+    {
+      "name": "layernorm_welford_kernel",
+      "sm_util": 48.09,
+      "dram_read_mb": 4.21,
+      "dram_write_mb": 3.98,
+      "total_dram_mb": 8.19,
+      "l1_util": 15.07,
+      "warp_active": 63.85,
+      "barrier_stall": 5.35,
+      "scoreboard_stall": 0.76,
+      "estimated_flops": 8388608.0,
+      "arithmetic_intensity": 0.9768009768009769,
+      "theoretical_bytes": 8388608.0,
+      "theoretical_mb": 8.0,
+      "bytes_amplification": 1.02375,
+      "tag": "sync_bound"
+    },
+    {
+      "name": "matmul_naive_kernel",
+      "sm_util": 97.48,
+      "dram_read_mb": 269.83,
+      "dram_write_mb": 5.03,
+      "total_dram_mb": 274.85999999999996,
+      "l1_util": 97.48,
+      "warp_active": 97.89,
+      "barrier_stall": 0.0,
+      "scoreboard_stall": 10.82,
+      "estimated_flops": 2147483648.0,
+      "arithmetic_intensity": 7.4510659972349575,
+      "theoretical_bytes": 12582912.0,
+      "theoretical_mb": 12.0,
+      "bytes_amplification": 22.904999999999998,
+      "tag": "memory_bound"
+    },
+    {
+      "name": "matmul_tiled_kernel",
+      "sm_util": 96.45,
+      "dram_read_mb": 279.77,
+      "dram_write_mb": 5.02,
+      "total_dram_mb": 284.78999999999996,
+      "l1_util": 96.45,
+      "warp_active": 97.87,
+      "barrier_stall": 5.44,
+      "scoreboard_stall": 8.09,
+      "estimated_flops": 2147483648.0,
+      "arithmetic_intensity": 7.191263738193055,
+      "theoretical_bytes": 12582912.0,
+      "theoretical_mb": 12.0,
+      "bytes_amplification": 23.732499999999998,
+      "tag": "memory_bound"
+    },
+    {
+      "name": "matmul_tiled_unroll_kernel",
+      "sm_util": 0.0,
+      "dram_read_mb": 0.0,
+      "dram_write_mb": 0.0,
+      "total_dram_mb": 0.0,
+      "l1_util": 0.0,
+      "warp_active": 0.0,
+      "barrier_stall": 0.0,
+      "scoreboard_stall": 0.0,
+      "estimated_flops": 2147483648.0,
+      "arithmetic_intensity": 0.0,
+      "theoretical_bytes": 12582912.0,
+      "theoretical_mb": 12.0,
+      "bytes_amplification": 0.0,
+      "tag": "parse_error"
+    },
+    {
+      "name": "softmax_naive_kernel",
+      "sm_util": 0.0,
+      "dram_read_mb": 0.0,
+      "dram_write_mb": 0.0,
+      "total_dram_mb": 0.0,
+      "l1_util": 0.0,
+      "warp_active": 0.0,
+      "barrier_stall": 0.0,
+      "scoreboard_stall": 0.0,
+      "estimated_flops": 8388608.0,
+      "arithmetic_intensity": 0.0,
+      "theoretical_bytes": 8388608.0,
+      "theoretical_mb": 8.0,
+      "bytes_amplification": 0.0,
+      "tag": "parse_error"
+    },
+    {
+      "name": "softmax_single_warp_kernel",
+      "sm_util": 0.0,
+      "dram_read_mb": 0.0,
+      "dram_write_mb": 0.0,
+      "total_dram_mb": 0.0,
+      "l1_util": 0.0,
+      "warp_active": 0.0,
+      "barrier_stall": 0.0,
+      "scoreboard_stall": 0.0,
+      "estimated_flops": 8388608.0,
+      "arithmetic_intensity": 0.0,
+      "theoretical_bytes": 8388608.0,
+      "theoretical_mb": 8.0,
+      "bytes_amplification": 0.0,
+      "tag": "parse_error"
+    },
+    {
+      "name": "softmax_warp_reduce_kernel",
+      "sm_util": 41.76,
+      "dram_read_mb": 4.21,
+      "dram_write_mb": 3.97,
+      "total_dram_mb": 8.18,
+      "l1_util": 41.76,
+      "warp_active": 58.5,
+      "barrier_stall": 6.69,
+      "scoreboard_stall": 5.46,
+      "estimated_flops": 8388608.0,
+      "arithmetic_intensity": 0.9779951100244499,
+      "theoretical_bytes": 8388608.0,
+      "theoretical_mb": 8.0,
+      "bytes_amplification": 1.0225,
+      "tag": "latency_bound"
+    },
+    {
+      "name": "vector_add_kernel",
+      "sm_util": 0.0,
+      "dram_read_mb": 0.0,
+      "dram_write_mb": 0.0,
+      "total_dram_mb": 0.0,
+      "l1_util": 0.0,
+      "warp_active": 0.0,
+      "barrier_stall": 0.0,
+      "scoreboard_stall": 0.0,
+      "estimated_flops": 16777216.0,
+      "arithmetic_intensity": 0.0,
+      "theoretical_bytes": 201326592.0,
+      "theoretical_mb": 192.0,
+      "bytes_amplification": 0.0,
+      "tag": "parse_error"
+    },
+    {
+      "name": "vector_add_kernel_grid_stride",
+      "sm_util": 14.24,
+      "dram_read_mb": 134.23,
+      "dram_write_mb": 66.94,
+      "total_dram_mb": 201.17,
+      "l1_util": 18.37,
+      "warp_active": 83.84,
+      "barrier_stall": 0.0,
+      "scoreboard_stall": 105.39,
+      "estimated_flops": 16777216.0,
+      "arithmetic_intensity": 0.07953472187701945,
+      "theoretical_bytes": 201326592.0,
+      "theoretical_mb": 192.0,
+      "bytes_amplification": 1.0477604166666665,
+      "tag": "latency_bound"
+    }
+  ],
+  "summary": {
+    "attention": {
+      "count": 2,
+      "errors": 1,
+      "avg_sm": 59.87,
+      "avg_dram_mb": 0.0,
+      "avg_ai": 0.0,
+      "tags": [
+        "balanced"
+      ],
+      "kernels": [
+        "attention_fused_kernel",
+        "attention_fused_kernel_v2"
+      ]
+    },
+    "layernorm": {
+      "count": 3,
+      "errors": 2,
+      "avg_sm": 48.09,
+      "avg_dram_mb": 8.19,
+      "avg_ai": 0.9768009768009769,
+      "tags": [
+        "sync_bound"
+      ],
+      "kernels": [
+        "layernorm_naive_kernel",
+        "layernorm_warp_reduce_kernel",
+        "layernorm_welford_kernel"
+      ]
+    },
+    "matmul": {
+      "count": 3,
+      "errors": 1,
+      "avg_sm": 96.965,
+      "avg_dram_mb": 279.82499999999993,
+      "avg_ai": 7.321164867714007,
+      "tags": [
+        "memory_bound",
+        "memory_bound"
+      ],
+      "kernels": [
+        "matmul_naive_kernel",
+        "matmul_tiled_kernel",
+        "matmul_tiled_unroll_kernel"
+      ]
+    },
+    "softmax": {
+      "count": 3,
+      "errors": 2,
+      "avg_sm": 41.76,
+      "avg_dram_mb": 8.18,
+      "avg_ai": 0.9779951100244499,
+      "tags": [
+        "latency_bound"
+      ],
+      "kernels": [
+        "softmax_naive_kernel",
+        "softmax_single_warp_kernel",
+        "softmax_warp_reduce_kernel"
+      ]
+    },
+    "vector_add": {
+      "count": 2,
+      "errors": 1,
+      "avg_sm": 14.24,
+      "avg_dram_mb": 201.17,
+      "avg_ai": 0.07953472187701945,
+      "tags": [
+        "latency_bound"
+      ],
+      "kernels": [
+        "vector_add_kernel",
+        "vector_add_kernel_grid_stride"
+      ]
+    }
+  }
+}
