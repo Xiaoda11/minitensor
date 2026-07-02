@@ -264,3 +264,5 @@ LLM Inference · CUDA Kernels · Runtime Systems · AI Infrastructure
 ```
 
 该项目是我面向 AI Infra / LLM 推理优化方向的底层系统实践。
+
+🌐 个人主页：[xiaoda.cloud](https://xiaoda.cloud)
