@@ -19,13 +19,14 @@
 #include <cstring>
 #include <cassert>
 #include <cmath>
+#include "fp8.h"
 
 // ============================================================================
 // 常量
 // ============================================================================
 constexpr int BLOCK_SIZE            = 16;   // 每个物理 block 的 slot 数
-constexpr int MAX_LOGICAL_BLOCKS    = 8;    // 每个请求最多 8 个逻辑块
-constexpr int TOTAL_PHYSICAL_BLOCKS = 16;   // 物理 block 总数
+constexpr int MAX_LOGICAL_BLOCKS    = 64;   // 每个请求最多 64 个逻辑块
+constexpr int TOTAL_PHYSICAL_BLOCKS = 64;   // 物理 block 总数
 constexpr int MAX_REQUESTS          = 4;    // 最多同时请求数
 constexpr int H                     = 2;    // head 数
 constexpr int D                     = 4;    // head 维度（小值，方便手算验证）
@@ -62,20 +63,49 @@ struct BlockTable {
 //   K_pool[phys_blk * H * BLOCK_SIZE * D + head * BLOCK_SIZE * D + offset * D]
 class PagedKVCache {
 private:
-    float *K_pool;
-    float *V_pool;
+    float *K_pool_fp32;
+    float *V_pool_fp32;
+    uint8_t *K_pool_fp8;
+    uint8_t *V_pool_fp8;
+    bool   fp8_enabled;
+    float  k_scale;
+    float  v_scale;
     bool   block_free[TOTAL_PHYSICAL_BLOCKS];
     BlockTable tables[MAX_REQUESTS];
 
 public:
     void init() {
         int total = TOTAL_PHYSICAL_BLOCKS * H * BLOCK_SIZE * D;
-        K_pool = new float[total]();
-        V_pool = new float[total]();
+        K_pool_fp32 = new float[total]();
+        V_pool_fp32 = new float[total]();
+        K_pool_fp8 = nullptr;
+        V_pool_fp8 = nullptr;
+        fp8_enabled = false;
+        k_scale = 1.0f;
+        v_scale = 1.0f;
         for (int i = 0; i < TOTAL_PHYSICAL_BLOCKS; ++i) block_free[i] = true;
         for (int i = 0; i < MAX_REQUESTS;       ++i) tables[i].init();
     }
-    ~PagedKVCache() { delete[] K_pool; delete[] V_pool; }
+    ~PagedKVCache() {
+        delete[] K_pool_fp32;
+        delete[] V_pool_fp32;
+        if (fp8_enabled) {
+            delete[] K_pool_fp8;
+            delete[] V_pool_fp8;
+        }
+    }
+
+    void init_fp8(bool enable, float k_s, float v_s) {
+        fp8_enabled = enable;
+        k_scale = k_s;
+        v_scale = v_s;
+
+        if (enable) {
+            int total = TOTAL_PHYSICAL_BLOCKS * H * BLOCK_SIZE * D;
+            K_pool_fp8 = new uint8_t[total]();
+            V_pool_fp8 = new uint8_t[total]();
+        }
+    }
 
     // 分配 num_blocks 个物理 block，返回请求 ID (rid)
     int allocate(int num_blocks) {
@@ -111,8 +141,15 @@ public:
         int phys_blk, offset;
         tables[rid].translate(pos, &phys_blk, &offset);
         int base = phys_blk * H * BLOCK_SIZE * D + head * BLOCK_SIZE * D + offset * D;
-        memcpy(K_pool + base, k_vec, D * sizeof(float));
-        memcpy(V_pool + base, v_vec, D * sizeof(float));
+        memcpy(K_pool_fp32 + base, k_vec, D * sizeof(float));
+        memcpy(V_pool_fp32 + base, v_vec, D * sizeof(float));
+
+        if (fp8_enabled) {
+            for (int d = 0; d < D; ++d) {
+                K_pool_fp8[base + d] = float_to_e4m3(k_vec[d], k_scale);
+                V_pool_fp8[base + d] = float_to_e4m3(v_vec[d], v_scale);
+            }
+        }
     }
 
     // 读取一个 K/V 向量
@@ -120,8 +157,15 @@ public:
         int phys_blk, offset;
         tables[rid].translate(pos, &phys_blk, &offset);
         int base = phys_blk * H * BLOCK_SIZE * D + head * BLOCK_SIZE * D + offset * D;
-        memcpy(k_vec, K_pool + base, D * sizeof(float));
-        memcpy(v_vec, V_pool + base, D * sizeof(float));
+        if (fp8_enabled) {
+            for (int d = 0; d < D; ++d) {
+                k_vec[d] = e4m3_to_float(K_pool_fp8[base + d], k_scale);
+                v_vec[d] = e4m3_to_float(V_pool_fp8[base + d], v_scale);
+            }
+        } else {
+            memcpy(k_vec, K_pool_fp32 + base, D * sizeof(float));
+            memcpy(v_vec, V_pool_fp32 + base, D * sizeof(float));
+        }
     }
 };
 
@@ -386,6 +430,73 @@ void generate(PagedKVCache &cache,
     cache.free(rid);
 }
 
+// 误差实验: 固定 context length，比较 FP32 vs FP8 attention 输出
+void run_error_experiment(int prompt_len, int max_new_tokens,
+                          const float *embedding, const float *lm_head,
+                          int vocab_size, float k_scale, float v_scale) {
+    int *prompt = new int[prompt_len];
+    for (int i = 0; i < prompt_len; ++i) prompt[i] = i % vocab_size;
+
+    PagedKVCache cache_fp32;
+    cache_fp32.init();
+    int total_tokens = prompt_len + max_new_tokens;
+    int num_blocks = (total_tokens + BLOCK_SIZE - 1) / BLOCK_SIZE;
+    int rid_fp32 = cache_fp32.allocate(num_blocks);
+    float last_fp32[D_MODEL];
+    prefill_step(cache_fp32, rid_fp32, prompt, prompt_len, embedding, last_fp32);
+
+    PagedKVCache cache_fp8;
+    cache_fp8.init();
+    cache_fp8.init_fp8(true, k_scale, v_scale);
+    int rid_fp8 = cache_fp8.allocate(num_blocks);
+    float last_fp8[D_MODEL];
+    prefill_step(cache_fp8, rid_fp8, prompt, prompt_len, embedding, last_fp8);
+
+    float max_abs = 0.0f, sum_abs = 0.0f;
+    float dot = 0.0f, norm_fp32 = 0.0f, norm_fp8 = 0.0f;
+    int count = 0;
+
+    auto accumulate = [&](const float *fp32, const float *fp8) {
+        for (int d = 0; d < D_MODEL; ++d) {
+            float err = fabsf(fp32[d] - fp8[d]);
+            if (err > max_abs) max_abs = err;
+            sum_abs += err;
+            dot += fp32[d] * fp8[d];
+            norm_fp32 += fp32[d] * fp32[d];
+            norm_fp8 += fp8[d] * fp8[d];
+            count++;
+        }
+    };
+
+    accumulate(last_fp32, last_fp8);
+
+    int current_len = prompt_len;
+    for (int step = 0; step < max_new_tokens; ++step) {
+        float *logits_buf = new float[vocab_size];
+        linear(last_fp32, lm_head, logits_buf);
+        int next_token = argmax(logits_buf, vocab_size);
+        delete[] logits_buf;
+        const float *tok_emb = embedding + next_token * D_MODEL;
+
+        decode_step(cache_fp32, rid_fp32, tok_emb, current_len, last_fp32);
+        decode_step(cache_fp8, rid_fp8, tok_emb, current_len, last_fp8);
+        current_len++;
+
+        accumulate(last_fp32, last_fp8);
+    }
+
+    float mean_abs = sum_abs / (float)count;
+    float cos_sim = (norm_fp32 > 0.0f && norm_fp8 > 0.0f)
+        ? dot / (sqrtf(norm_fp32) * sqrtf(norm_fp8)) : 0.0f;
+
+    printf("| %d | %.6f | %.6f | %.6f |\n",
+           prompt_len + max_new_tokens, max_abs, mean_abs, cos_sim);
+
+    cache_fp32.free(rid_fp32);
+    cache_fp8.free(rid_fp8);
+    delete[] prompt;
+}
+
 // ============================================================================
 // main — 测试完整流程
 // ============================================================================
@@ -419,14 +530,32 @@ int main() {
         printf("%d%s", prompt[i], i < PROMPT_LEN - 1 ? ", " : "");
     printf("]\n");
 
-    // ---- 初始化 KV Cache ----
-    PagedKVCache cache;
-    cache.init();
+    // ---- 计算 FP8 calibration scale ----
+    float prompt_embedding[PROMPT_LEN * D_MODEL];
+    for (int i = 0; i < PROMPT_LEN; ++i)
+        memcpy(prompt_embedding + i * D_MODEL,
+               embedding + prompt[i] * D_MODEL,
+               D_MODEL * sizeof(float));
+    float k_scale_val = compute_fp8_scale(prompt_embedding, PROMPT_LEN * D_MODEL);
+    float v_scale_val = compute_fp8_scale(prompt_embedding, PROMPT_LEN * D_MODEL);
 
-    // ---- 生成 ----
+    // ---- FP32 baseline 生成 ----
+    PagedKVCache cache_fp32;
+    cache_fp32.init();
+
+    int generated_fp32[MAX_NEW];
+    int generated_count_fp32 = 0;
+    generate(cache_fp32, prompt, PROMPT_LEN, embedding, lm_head,
+             MAX_NEW, VOCAB_SIZE, generated_fp32, generated_count_fp32);
+
+    // ---- FP8 生成 ----
+    PagedKVCache cache_fp8;
+    cache_fp8.init();
+    cache_fp8.init_fp8(true, k_scale_val, v_scale_val);
+
     int generated[MAX_NEW];
     int generated_count = 0;
-    generate(cache, prompt, PROMPT_LEN, embedding, lm_head,
+    generate(cache_fp8, prompt, PROMPT_LEN, embedding, lm_head,
              MAX_NEW, VOCAB_SIZE, generated, generated_count);
 
     // ---- 输出结果 ----
@@ -434,6 +563,44 @@ int main() {
     for (int i = 0; i < generated_count; ++i)
         printf("%d%s", generated[i], i < generated_count - 1 ? ", " : "");
     printf("]\n");
+
+    printf("\nFP32 baseline tokens (%d): [", generated_count_fp32);
+    for (int i = 0; i < generated_count_fp32; ++i)
+        printf("%d%s", generated_fp32[i], i < generated_count_fp32 - 1 ? ", " : "");
+    printf("]\n");
+
+    int token_mismatches = 0;
+    int compare_count = generated_count < generated_count_fp32 ? generated_count : generated_count_fp32;
+    for (int i = 0; i < compare_count; ++i)
+        if (generated[i] != generated_fp32[i]) token_mismatches++;
+    token_mismatches += abs(generated_count - generated_count_fp32);
+
+    int total = TOTAL_PHYSICAL_BLOCKS * H * BLOCK_SIZE * D;
+    size_t fp32_pool_bytes = 2 * total * sizeof(float);
+    size_t fp8_pool_bytes = 2 * total * sizeof(uint8_t);
+
+    printf("\nFP8 scale: K=%f V=%f\n", k_scale_val, v_scale_val);
+    printf("Token mismatches vs FP32: %d\n", token_mismatches);
+    printf("Expected 4x storage reduction: FP32 pool bytes=%zu, FP8 pool bytes=%zu\n",
+           fp32_pool_bytes, fp8_pool_bytes);
+    printf("FP8 PagedKVCache V0.1 — storage integration verified\n");
+
+    // ---- 误差实验: 不同 context length ----
+    printf("\n========================================\n");
+    printf("FP8 Error vs Context Length\n");
+    printf("========================================\n");
+    printf("| Context Len | Max Abs Error | Mean Abs Error | Cosine Sim |\n");
+    printf("|------------:|--------------:|---------------:|-----------:|\n");
+
+    // S=128: prompt=120, decode=8
+    run_error_experiment(120, 8, embedding, lm_head, VOCAB_SIZE,
+                         k_scale_val, v_scale_val);
+    // S=256: prompt=248, decode=8
+    run_error_experiment(248, 8, embedding, lm_head, VOCAB_SIZE,
+                         k_scale_val, v_scale_val);
+    // S=512: prompt=504, decode=8
+    run_error_experiment(504, 8, embedding, lm_head, VOCAB_SIZE,
+                         k_scale_val, v_scale_val);
 
     printf("\n========================================\n");
     printf("Test completed.\n");

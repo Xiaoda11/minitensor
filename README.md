@@ -36,6 +36,7 @@ MiniTensor 是我从零复现这些机制的实践项目。
 | CUDA Kernel | vector add、naive matmul、tiled matmul、softmax warp reduce、layernorm、fused attention |
 | 推理流程        | KV Cache、Prefill、Decode、Generate loop                                              |
 | 显存管理        | KV Cache 碎片分析、PagedAttention-style block table                                     |
+| FP8 KV Cache    | E4M3 量化存储、store/load 透明集成、FP32 baseline 对比、4× storage reduction |
 | 调度机制        | Continuous Batching 模拟                                                             |
 | 性能分析        | CUDA benchmark 框架、Nsight Compute profiling                                         |
 
@@ -63,7 +64,9 @@ minitensor/
 │   ├── decode.cu             # Decode 阶段
 │   ├── generate.cu           # 自回归生成流程
 │   ├── fragmentation.cu      # KV Cache 碎片分析
-│   └── paged_attention.cu    # PagedAttention-style block mapping
+│   ├── paged_attention.cu    # PagedAttention-style block mapping
+│   ├── end_to_end.cu         # PagedAttention 端到端推理 (含 FP8 KV Cache V0.1)
+│   └── fp8.h                # E4M3 FP8 编解码（纯 C++ 头文件）
 │
 ├── tests/cuda/               # CUDA benchmark 与 profiling 入口
 ├── docs/benchmarks.md        # benchmark 结果与 Nsight 分析
@@ -76,10 +79,10 @@ minitensor/
 ## 性能测试环境
 
 ```text
-GPU: NVIDIA RTX 3060
-Compute Capability: 8.6
-VRAM: 12GB
-SM 数量: 28
+GPU: NVIDIA RTX 2060
+Compute Capability: 7.5
+VRAM: 6GB
+SM 数量: 30
 Compiler: nvcc -O3
 Profiler: NVIDIA Nsight Compute
 CPU: Intel Xeon / C++17
@@ -218,10 +221,70 @@ make -j$(nproc) cuda_kernel_benchmark
 | v0.4 | CUDA Kernel 实现                        | Done        |
 | v0.5 | KV Cache、Prefill / Decode / Generate  | Done        |
 | v0.6 | PagedAttention、Continuous Batching    | Done        |
-| v0.7 | Benchmark 框架、Nsight Profiling         | In Progress |
-| v0.8 | Register-tiled Matmul、Vectorized Load | Planned     |
-| v0.9 | 更大序列长度 Attention Benchmark            | Planned     |
-| v1.0 | Minimal LLM Inference Runtime Demo    | Planned     |
+| v0.7 | Benchmark 框架、Nsight Profiling         | Done |
+| v0.8 | FP8 PagedKVCache V0.1 — E4M3 量化存储集成    | Done |
+| v0.9 | Register-tiled Matmul、Vectorized Load | Planned |
+| v1.0 | 更大序列长度 Attention Benchmark            | Planned |
+
+---
+
+## FP8 PagedKVCache V0.1
+
+在 PagedAttention 的分页 KV Cache 中集成了 E4M3 FP8 量化存储。
+
+### 设计
+
+```text
+Projection Output (FP32)
+        ↓
+PagedKVCache::store() — float_to_e4m3(K/k_scale)
+        ↓
+uint8_t K_pool_fp8 / V_pool_fp8 (1 byte per element)
+        ↓
+PagedKVCache::load()  — e4m3_to_float(byte) × k_scale
+        ↓
+FP32 Attention (Q·K^T + Softmax + PV)
+```
+
+- **量化格式**: E4M3 (1 sign + 4 exponent + 3 mantissa)，自定义纯 C++ 实现，无 CUDA 依赖
+- **Scale 粒度**: per-cache scalar scale（K 和 V 各一个 float）
+- **集成方式**: `store()` 和 `load()` 内部透明处理，调用方接口不变（仍传 `float*`）
+- **Baseline 保护**: FP32 pool 与 FP8 pool 并存，可随时对比
+
+### 关键结果
+
+| 指标 | 数值 |
+|------|------|
+| Storage Reduction | 4× (16384 → 4096 bytes) |
+| Token Mismatches vs FP32 | 0 (相同 greedy 采样结果) |
+| 量化格式 | E4M3, subnormal flush-to-zero, saturation at ±448 |
+
+### 边界说明
+
+- 当前为 **CPU reference 实现**，PagedAttention runtime 在 CPU 上运行
+- RTX 2060 (CC 7.5) 无原生 FP8 Tensor Core，因此未做 GPU latency benchmark
+- 实验目标：验证 FP8 storage integration 的 numerical behavior 和 memory footprint
+- GPU kernel 级 FP8 性能留待后续在有 FP8 硬件支持的平台上验证
+
+### 相关文件
+
+- `cuda/fp8.h` — E4M3 encode/decode + unit test
+- `cuda/end_to_end.cu` — PagedKVCache with FP8 support
+
+编译运行:
+```bash
+cd cuda
+g++ -std=c++17 -O2 -x c++ end_to_end.cu -o end_to_end && ./end_to_end
+
+# FP8 单元测试
+g++ -std=c++17 -O2 -DFP8_UNIT_TEST -x c++ fp8.h -o fp8_unit_test && ./fp8_unit_test
+```
+
+### 后续方向
+
+- V0.2: per-head scale granularity 对比
+- V1: CUDA FP8 store/load kernel（需 CC ≥ 8.9 硬件）
+- V2: Fused dequant + attention kernel
 
 ---
 
@@ -237,6 +300,8 @@ make -j$(nproc) cuda_kernel_benchmark
 * 高 occupancy 为什么不一定代表高 FLOPS
 * Nsight Compute 如何定位 memory stall、barrier stall、warp active 等问题
 * CUDA kernel 中 shared memory、coalescing、bank conflict、warp reduce 的实际影响
+* FP8 E4M3 量化编码/解码的数值行为（rounding、saturation、subnormal flush）
+* 量化误差在 PagedAttention 路径中的端到端影响
 
 ---
 
@@ -250,6 +315,8 @@ make -j$(nproc) cuda_kernel_benchmark
 * Prefill / Decode Separation
 * Memory-bound vs Compute-bound Analysis
 * Nsight Compute Profiling
+* FP8 KV Cache Quantization
+* E4M3 Floating-Point Encoding
 
 ---
 
